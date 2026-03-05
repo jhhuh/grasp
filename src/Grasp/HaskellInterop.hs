@@ -1,58 +1,61 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Grasp.HaskellInterop
   ( defaultEnvWithInterop
+  , defaultRegistry
   ) where
 
 import Data.IORef
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
-import qualified Data.Text as T
 import Foreign.StablePtr
 
 import Grasp.Types
 import Grasp.Eval (defaultEnv)
 import Grasp.RtsBridge (bridgeSafeApplyIntInt)
+import Grasp.HsRegistry (dispatchRegistered)
 
 -- | Default environment extended with haskell-call
 defaultEnvWithInterop :: IO Env
 defaultEnvWithInterop = do
   env <- defaultEnv
+  reg <- defaultRegistry
   modifyIORef' env $ Map.insert "haskell-call" $
-    LPrimitive "haskell-call" haskellCall
+    LPrimitive "haskell-call" (haskellCall reg)
   pure env
 
-haskellCall :: [LispVal] -> IO LispVal
-haskellCall [LStr name, arg] = dispatchHaskellCall name arg
-haskellCall _ = error "haskell-call expects (haskell-call \"name\" arg)"
+haskellCall :: HsFuncRegistry -> [LispVal] -> IO LispVal
+haskellCall reg [LStr name, arg] = dispatchRegistered reg name [arg]
+haskellCall _ _ = error "haskell-call expects (haskell-call \"name\" arg)"
 
-dispatchHaskellCall :: Text -> LispVal -> IO LispVal
--- Int -> Int functions: route through C bridge (rts_apply/rts_eval)
-dispatchHaskellCall "succ" (LInt n) = do
-  sp <- newStablePtr (succ :: Int -> Int)
-  result <- bridgeSafeApplyIntInt sp (fromIntegral n)
-  freeStablePtr sp
-  case result of
-    Right v -> pure $ LInt (fromIntegral v)
-    Left err -> error $ "haskell-call succ: " <> err
+-- | Build the default registry of Haskell functions
+defaultRegistry :: IO HsFuncRegistry
+defaultRegistry = do
+  succEntry <- mkIntIntEntry "succ" (succ :: Int -> Int)
+  negEntry  <- mkIntIntEntry "negate" (negate :: Int -> Int)
+  pure $ Map.fromList
+    [ ("succ",    succEntry)
+    , ("negate",  negEntry)
+    , ("reverse", HsFuncEntry [HsListInt] HsListInt hsReverse)
+    , ("length",  HsFuncEntry [HsListInt] HsInt     hsLength)
+    ]
 
-dispatchHaskellCall "negate" (LInt n) = do
-  sp <- newStablePtr (negate :: Int -> Int)
-  result <- bridgeSafeApplyIntInt sp (fromIntegral n)
-  freeStablePtr sp
-  case result of
-    Right v -> pure $ LInt (fromIntegral v)
-    Left err -> error $ "haskell-call negate: " <> err
+-- | Create a registry entry for an (Int -> Int) function via the C bridge
+mkIntIntEntry :: Text -> (Int -> Int) -> IO HsFuncEntry
+mkIntIntEntry name f = do
+  sp <- newStablePtr f
+  pure $ HsFuncEntry [HsInt] HsInt $ \[LInt n] -> do
+    result <- bridgeSafeApplyIntInt sp (fromIntegral n)
+    case result of
+      Right v -> pure $ LInt (fromIntegral v)
+      Left err -> error $ show name <> ": " <> err
 
--- List functions: Haskell-side marshaling
-dispatchHaskellCall "reverse" listVal = do
-  let hs = toHaskellListInt listVal
-  pure $ fromHaskellListInt (reverse hs)
+hsReverse :: [LispVal] -> IO LispVal
+hsReverse [listVal] = pure $ fromHaskellListInt (reverse (toHaskellListInt listVal))
+hsReverse _ = error "reverse: expected 1 argument"
 
-dispatchHaskellCall "length" listVal = do
-  let hs = toHaskellListInt listVal
-  pure $ LInt (fromIntegral (length hs))
-
-dispatchHaskellCall name _ = error $ "unknown Haskell function: " <> T.unpack name
+hsLength :: [LispVal] -> IO LispVal
+hsLength [listVal] = pure $ LInt (fromIntegral (length (toHaskellListInt listVal)))
+hsLength _ = error "length: expected 1 argument"
 
 -- | Marshal LispVal cons list to Haskell [Int]
 toHaskellListInt :: LispVal -> [Int]

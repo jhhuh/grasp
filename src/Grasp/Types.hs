@@ -50,3 +50,17 @@ instance Eq LispVal where
 
 -- | Environment: mutable bindings
 type Env = IORef (Map.Map Text LispVal)
+
+-- | Haskell type tags for the interop boundary
+data HsType = HsInt | HsListInt | HsBool | HsString
+  deriving (Show, Eq)
+
+-- | A registered Haskell function with type metadata
+data HsFuncEntry = HsFuncEntry
+  { hfArgTypes :: [HsType]
+  , hfRetType  :: HsType
+  , hfInvoke   :: [LispVal] -> IO LispVal
+  }
+
+-- | Registry of available Haskell functions
+type HsFuncRegistry = Map.Map Text HsFuncEntry

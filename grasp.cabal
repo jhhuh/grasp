@@ -13,6 +13,7 @@ executable grasp
     Grasp.Eval
     Grasp.Printer
     Grasp.RtsBridge
+    Grasp.HsRegistry
     Grasp.HaskellInterop
   c-sources:      cbits/rts_bridge.c
   include-dirs:   cbits
@@ -38,6 +39,7 @@ test-suite grasp-test
     Grasp.Eval
     Grasp.Printer
     Grasp.RtsBridge
+    Grasp.HsRegistry
     Grasp.HaskellInterop
     ParserSpec
     EvalSpec
