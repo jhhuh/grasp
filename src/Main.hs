@@ -11,13 +11,14 @@ import GhcLisp.Types
 import GhcLisp.Parser
 import GhcLisp.Eval
 import GhcLisp.Printer
+import GhcLisp.HaskellInterop (defaultEnvWithInterop)
 
 main :: IO ()
 main = do
   hSetBuffering stdin LineBuffering
   putStrLn "ghc-lisp v0.1 — a Lisp on GHC's runtime"
   putStrLn "Type (quit) to exit."
-  env <- defaultEnv
+  env <- defaultEnvWithInterop
   repl env
 
 repl :: Env -> IO ()
