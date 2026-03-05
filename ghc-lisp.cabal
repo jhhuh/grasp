@@ -12,6 +12,9 @@ executable ghc-lisp
     GhcLisp.Parser
     GhcLisp.Eval
     GhcLisp.Printer
+    GhcLisp.RtsBridge
+  c-sources:      cbits/rts_bridge.c
+  include-dirs:   cbits
   build-depends:
     , base        >= 4.18 && < 5
     , text
@@ -33,8 +36,12 @@ test-suite ghc-lisp-test
     GhcLisp.Parser
     GhcLisp.Eval
     GhcLisp.Printer
+    GhcLisp.RtsBridge
     ParserSpec
     EvalSpec
+    RtsBridgeSpec
+  c-sources:      cbits/rts_bridge.c
+  include-dirs:   cbits
   build-tool-depends:
     hspec-discover:hspec-discover
   build-depends:
