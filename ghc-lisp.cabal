@@ -13,6 +13,7 @@ executable ghc-lisp
     GhcLisp.Eval
     GhcLisp.Printer
     GhcLisp.RtsBridge
+    GhcLisp.HaskellInterop
   c-sources:      cbits/rts_bridge.c
   include-dirs:   cbits
   build-depends:
@@ -37,9 +38,11 @@ test-suite ghc-lisp-test
     GhcLisp.Eval
     GhcLisp.Printer
     GhcLisp.RtsBridge
+    GhcLisp.HaskellInterop
     ParserSpec
     EvalSpec
     RtsBridgeSpec
+    InteropSpec
   c-sources:      cbits/rts_bridge.c
   include-dirs:   cbits
   build-tool-depends:
