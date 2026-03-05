@@ -7,6 +7,9 @@ executable ghc-lisp
   default-language: GHC2021
   hs-source-dirs:   src
   main-is:          Main.hs
+  other-modules:
+    GhcLisp.Types
+    GhcLisp.Parser
   build-depends:
     , base        >= 4.18 && < 5
     , text
@@ -23,6 +26,12 @@ test-suite ghc-lisp-test
   type:             exitcode-stdio-1.0
   hs-source-dirs:   test, src
   main-is:          Spec.hs
+  other-modules:
+    GhcLisp.Types
+    GhcLisp.Parser
+    ParserSpec
+  build-tool-depends:
+    hspec-discover:hspec-discover
   build-depends:
     , base        >= 4.18 && < 5
     , text

@@ -1,4 +1,1 @@
-module Main where
-
-main :: IO ()
-main = putStrLn "No tests yet"
+{-# OPTIONS_GHC -F -pgmF hspec-discover #-}
