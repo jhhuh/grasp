@@ -2,7 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module Main where
 
-import System.IO (hFlush, stdout, hSetBuffering, stdin, BufferMode(..))
+import System.IO (hFlush, stdout, hSetBuffering, stdin, BufferMode(..), isEOF)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Control.Exception (catch, SomeException, displayException)
@@ -25,16 +25,20 @@ repl :: Env -> IO ()
 repl env = do
   putStr "λ> "
   hFlush stdout
-  line <- TIO.getLine
-  if T.strip line == "(quit)"
-    then putStrLn "Bye."
+  eof <- isEOF
+  if eof
+    then putStrLn "\nBye."
     else do
-      case parseLisp line of
-        Left err -> putStrLn $ "parse error: " <> show err
-        Right expr -> do
-          result <- (Right <$> eval env expr)
-            `catch` \(e :: SomeException) -> pure (Left (displayException e))
-          case result of
-            Right val -> putStrLn (printVal val)
-            Left err  -> putStrLn $ "error: " <> err
-      repl env
+      line <- TIO.getLine
+      if T.strip line == "(quit)"
+        then putStrLn "Bye."
+        else do
+          case parseLisp line of
+            Left err -> putStrLn $ "parse error: " <> show err
+            Right expr -> do
+              result <- (Right <$> eval env expr)
+                `catch` \(e :: SomeException) -> pure (Left (displayException e))
+              case result of
+                Right val -> putStrLn (printVal val)
+                Left err  -> putStrLn $ "error: " <> err
+          repl env

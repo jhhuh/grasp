@@ -23,7 +23,12 @@ HsInt ghclisp_apply_int_int(HsStablePtr fn_sp, HsInt arg)
     /* Apply function to argument (creates a thunk) */
     HaskellObj app = rts_apply(cap, fn, harg);
 
-    /* Evaluate the application to WHNF */
+    /* Evaluate the application to WHNF.
+     * WARNING: If the Haskell function throws an exception, rts_eval
+     * will call barf() and abort the process. Use rts_evalIO with an
+     * exception-catching wrapper for production use.
+     * WARNING: These functions must not be called from code already
+     * executing under rts_lock() — that would deadlock. */
     HaskellObj result;
     rts_eval(&cap, app, &result);
 
