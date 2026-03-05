@@ -29,6 +29,12 @@ spec = describe "Parser" $ do
     it "parses strings" $
       parse pExpr "" "\"hello\"" `shouldParse` EStr "hello"
 
+    it "parses hs: prefixed symbols" $
+      parse pExpr "" "hs:succ" `shouldParse` ESym "hs:succ"
+
+    it "parses qualified hs: symbols" $
+      parse pExpr "" "hs:Data.List.sort" `shouldParse` ESym "hs:Data.List.sort"
+
     it "parses #t and #f" $ do
       parse pExpr "" "#t" `shouldParse` EBool True
       parse pExpr "" "#f" `shouldParse` EBool False

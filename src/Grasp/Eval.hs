@@ -10,22 +10,26 @@ import qualified Data.Text as T
 import qualified Data.Map.Strict as Map
 
 import Grasp.Types
+import Grasp.HsRegistry (dispatchRegistered)
 
 defaultEnv :: IO Env
-defaultEnv = newIORef $ Map.fromList
-  [ ("+", LPrimitive "+" (numBinOp (+)))
-  , ("-", LPrimitive "-" (numBinOp (-)))
-  , ("*", LPrimitive "*" (numBinOp (*)))
-  , ("div", LPrimitive "div" (numBinOp div))
-  , ("=", LPrimitive "=" eqOp)
-  , ("<", LPrimitive "<" (cmpOp (<)))
-  , (">", LPrimitive ">" (cmpOp (>)))
-  , ("list", LPrimitive "list" listOp)
-  , ("cons", LPrimitive "cons" consOp)
-  , ("car", LPrimitive "car" carOp)
-  , ("cdr", LPrimitive "cdr" cdrOp)
-  , ("null?", LPrimitive "null?" nullOp)
-  ]
+defaultEnv = newIORef $ EnvData
+  { envBindings = Map.fromList
+      [ ("+", LPrimitive "+" (numBinOp (+)))
+      , ("-", LPrimitive "-" (numBinOp (-)))
+      , ("*", LPrimitive "*" (numBinOp (*)))
+      , ("div", LPrimitive "div" (numBinOp div))
+      , ("=", LPrimitive "=" eqOp)
+      , ("<", LPrimitive "<" (cmpOp (<)))
+      , (">", LPrimitive ">" (cmpOp (>)))
+      , ("list", LPrimitive "list" listOp)
+      , ("cons", LPrimitive "cons" consOp)
+      , ("car", LPrimitive "car" carOp)
+      , ("cdr", LPrimitive "cdr" cdrOp)
+      , ("null?", LPrimitive "null?" nullOp)
+      ]
+  , envHsRegistry = Map.empty
+  }
 
 numBinOp :: (Integer -> Integer -> Integer) -> [LispVal] -> IO LispVal
 numBinOp op [LInt a, LInt b] = pure $ LInt (op a b)
@@ -65,8 +69,8 @@ eval _ (EDouble d) = pure $ LDouble d
 eval _ (EStr s)    = pure $ LStr s
 eval _ (EBool b)   = pure $ LBool b
 eval env (ESym s)  = do
-  bindings <- readIORef env
-  case Map.lookup s bindings of
+  ed <- readIORef env
+  case Map.lookup s (envBindings ed) of
     Just v  -> pure v
     Nothing -> error $ "unbound symbol: " <> T.unpack s
 eval env (EList [ESym "quote", e]) = evalQuote e
@@ -77,13 +81,19 @@ eval env (EList [ESym "if", cond, then_, else_]) = do
     _           -> eval env then_
 eval env (EList [ESym "define", ESym name, body]) = do
   val <- eval env body
-  modifyIORef' env (Map.insert name val)
+  modifyIORef' env $ \ed -> ed { envBindings = Map.insert name val (envBindings ed) }
   pure val
 eval env (EList (ESym "lambda" : EList params : body)) = do
   let paramNames = map (\case ESym s -> s; _ -> error "lambda params must be symbols") params
   case body of
     [expr] -> pure $ LFun paramNames expr env
     _      -> error "lambda body must be a single expression"
+-- hs: prefix dispatches to the Haskell function registry
+eval env (EList (ESym name : args))
+  | Just hsName <- T.stripPrefix "hs:" name = do
+      ed <- readIORef env
+      vals <- mapM (eval env) args
+      dispatchRegistered (envHsRegistry ed) hsName vals
 eval env (EList (fn : args)) = do
   f <- eval env fn
   vals <- mapM (eval env) args
@@ -94,8 +104,8 @@ apply :: LispVal -> [LispVal] -> IO LispVal
 apply (LPrimitive _ f) args = f args
 apply (LFun params body closure) args = do
   let bindings = Map.fromList (zip params args)
-  parentBindings <- readIORef closure
-  childEnv <- newIORef (Map.union bindings parentBindings)
+  parentEd <- readIORef closure
+  childEnv <- newIORef $ parentEd { envBindings = Map.union bindings (envBindings parentEd) }
   eval childEnv body
 apply v _ = error $ "not a function: " <> show v
 

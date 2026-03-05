@@ -48,8 +48,13 @@ instance Eq LispVal where
   LCons a b == LCons c d = a == c && b == d
   _ == _ = False
 
--- | Environment: mutable bindings
-type Env = IORef (Map.Map Text LispVal)
+-- | Environment: bindings + Haskell function registry
+data EnvData = EnvData
+  { envBindings   :: Map.Map Text LispVal
+  , envHsRegistry :: HsFuncRegistry
+  }
+
+type Env = IORef EnvData
 
 -- | Haskell type tags for the interop boundary
 data HsType = HsInt | HsListInt | HsBool | HsString

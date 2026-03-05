@@ -38,6 +38,19 @@ spec = describe "Haskell Interop" $ do
     it "calls length on a list" $
       run "(haskell-call \"length\" (list 10 20 30))" `shouldReturn` "3"
 
+  describe "hs: syntax" $ do
+    it "calls hs:succ" $
+      run "(hs:succ 41)" `shouldReturn` "42"
+
+    it "calls hs:negate" $
+      run "(hs:negate 5)" `shouldReturn` "-5"
+
+    it "calls hs:reverse on a list" $
+      run "(hs:reverse (list 1 2 3))" `shouldReturn` "(3 2 1)"
+
+    it "calls hs:length on a list" $
+      run "(hs:length (list 10 20 30))" `shouldReturn` "3"
+
   describe "type validation" $ do
     it "rejects type mismatch (string to Int function)" $ do
       result <- runError "(haskell-call \"succ\" \"hello\")"

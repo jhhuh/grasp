@@ -14,13 +14,17 @@ import Grasp.Eval (defaultEnv)
 import Grasp.RtsBridge (bridgeSafeApplyIntInt)
 import Grasp.HsRegistry (dispatchRegistered)
 
--- | Default environment extended with haskell-call
+-- | Default environment extended with haskell-call and hs: registry
 defaultEnvWithInterop :: IO Env
 defaultEnvWithInterop = do
   env <- defaultEnv
   reg <- defaultRegistry
-  modifyIORef' env $ Map.insert "haskell-call" $
-    LPrimitive "haskell-call" (haskellCall reg)
+  modifyIORef' env $ \ed -> ed
+    { envBindings = Map.insert "haskell-call"
+        (LPrimitive "haskell-call" (haskellCall reg))
+        (envBindings ed)
+    , envHsRegistry = reg
+    }
   pure env
 
 haskellCall :: HsFuncRegistry -> [LispVal] -> IO LispVal
