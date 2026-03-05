@@ -10,6 +10,8 @@ executable ghc-lisp
   other-modules:
     GhcLisp.Types
     GhcLisp.Parser
+    GhcLisp.Eval
+    GhcLisp.Printer
   build-depends:
     , base        >= 4.18 && < 5
     , text
@@ -29,7 +31,10 @@ test-suite ghc-lisp-test
   other-modules:
     GhcLisp.Types
     GhcLisp.Parser
+    GhcLisp.Eval
+    GhcLisp.Printer
     ParserSpec
+    EvalSpec
   build-tool-depends:
     hspec-discover:hspec-discover
   build-depends:
