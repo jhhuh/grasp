@@ -2,7 +2,7 @@ module RtsBridgeSpec (spec) where
 
 import Test.Hspec
 import Foreign.StablePtr
-import GhcLisp.RtsBridge
+import Grasp.RtsBridge
 
 spec :: Spec
 spec = describe "RtsBridge" $ do

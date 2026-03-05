@@ -1,7 +1,7 @@
-module GhcLisp.Printer (printVal) where
+module Grasp.Printer (printVal) where
 
 import qualified Data.Text as T
-import GhcLisp.Types
+import Grasp.Types
 
 printVal :: LispVal -> String
 printVal (LInt n)    = show n

@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module GhcLisp.Types where
+module Grasp.Types where
 
 import Data.IORef
 import Data.Text (Text)

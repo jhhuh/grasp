@@ -1,19 +1,19 @@
 cabal-version:   3.0
-name:            ghc-lisp
+name:            grasp
 version:         0.1.0.0
 build-type:      Simple
 
-executable ghc-lisp
+executable grasp
   default-language: GHC2021
   hs-source-dirs:   src
   main-is:          Main.hs
   other-modules:
-    GhcLisp.Types
-    GhcLisp.Parser
-    GhcLisp.Eval
-    GhcLisp.Printer
-    GhcLisp.RtsBridge
-    GhcLisp.HaskellInterop
+    Grasp.Types
+    Grasp.Parser
+    Grasp.Eval
+    Grasp.Printer
+    Grasp.RtsBridge
+    Grasp.HaskellInterop
   c-sources:      cbits/rts_bridge.c
   include-dirs:   cbits
   build-depends:
@@ -27,18 +27,18 @@ executable ghc-lisp
     -rtsopts
     -with-rtsopts=-N
 
-test-suite ghc-lisp-test
+test-suite grasp-test
   default-language: GHC2021
   type:             exitcode-stdio-1.0
   hs-source-dirs:   test, src
   main-is:          Spec.hs
   other-modules:
-    GhcLisp.Types
-    GhcLisp.Parser
-    GhcLisp.Eval
-    GhcLisp.Printer
-    GhcLisp.RtsBridge
-    GhcLisp.HaskellInterop
+    Grasp.Types
+    Grasp.Parser
+    Grasp.Eval
+    Grasp.Printer
+    Grasp.RtsBridge
+    Grasp.HaskellInterop
     ParserSpec
     EvalSpec
     RtsBridgeSpec

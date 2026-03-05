@@ -1,6 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-module GhcLisp.Eval
+module Grasp.Eval
   ( eval
   , defaultEnv
   ) where
@@ -9,7 +9,7 @@ import Data.IORef
 import qualified Data.Text as T
 import qualified Data.Map.Strict as Map
 
-import GhcLisp.Types
+import Grasp.Types
 
 defaultEnv :: IO Env
 defaultEnv = newIORef $ Map.fromList

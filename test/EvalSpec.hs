@@ -3,10 +3,10 @@ module EvalSpec (spec) where
 
 import Test.Hspec
 import qualified Data.Text as T
-import GhcLisp.Types
-import GhcLisp.Eval
-import GhcLisp.Parser
-import GhcLisp.Printer
+import Grasp.Types
+import Grasp.Eval
+import Grasp.Parser
+import Grasp.Printer
 
 -- Helper: parse + eval, return printed result
 run :: String -> IO String

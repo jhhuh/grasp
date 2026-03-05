@@ -7,16 +7,16 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Control.Exception (catch, SomeException, displayException)
 
-import GhcLisp.Types
-import GhcLisp.Parser
-import GhcLisp.Eval
-import GhcLisp.Printer
-import GhcLisp.HaskellInterop (defaultEnvWithInterop)
+import Grasp.Types
+import Grasp.Parser
+import Grasp.Eval
+import Grasp.Printer
+import Grasp.HaskellInterop (defaultEnvWithInterop)
 
 main :: IO ()
 main = do
   hSetBuffering stdin LineBuffering
-  putStrLn "ghc-lisp v0.1 — a Lisp on GHC's runtime"
+  putStrLn "grasp v0.1 — a Lisp on GHC's runtime"
   putStrLn "Type (quit) to exit."
   env <- defaultEnvWithInterop
   repl env

@@ -2,11 +2,11 @@ module InteropSpec (spec) where
 
 import Test.Hspec
 import qualified Data.Text as T
-import GhcLisp.Types
-import GhcLisp.Eval
-import GhcLisp.Parser
-import GhcLisp.Printer
-import GhcLisp.HaskellInterop
+import Grasp.Types
+import Grasp.Eval
+import Grasp.Parser
+import Grasp.Printer
+import Grasp.HaskellInterop
 
 -- Helper: parse + eval with interop, return printed result
 run :: String -> IO String

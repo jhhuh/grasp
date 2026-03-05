@@ -1,7 +1,7 @@
 #include "Rts.h"
 #include "rts_bridge.h"
 
-HsInt ghclisp_roundtrip_int(HsInt val)
+HsInt grasp_roundtrip_int(HsInt val)
 {
     Capability *cap = rts_lock();
     HaskellObj obj = rts_mkInt(cap, val);
@@ -10,7 +10,7 @@ HsInt ghclisp_roundtrip_int(HsInt val)
     return result;
 }
 
-HsInt ghclisp_apply_int_int(HsStablePtr fn_sp, HsInt arg)
+HsInt grasp_apply_int_int(HsStablePtr fn_sp, HsInt arg)
 {
     Capability *cap = rts_lock();
 

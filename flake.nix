@@ -1,5 +1,5 @@
 {
-  description = "ghc-lisp — a dynamic Lisp on GHC's runtime";
+  description = "Grasp — a Lisp that grasps the G-machine";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -10,6 +10,12 @@
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
       hsPkgs = pkgs.haskell.packages.ghc98;
+
+      mkdocsPython = pkgs.python3.withPackages (ps: [
+        ps.mkdocs
+        ps.mkdocs-material
+        ps.pymdown-extensions
+      ]);
     in
     {
       devShells.${system}.default = hsPkgs.shellFor {
@@ -19,6 +25,14 @@
           pkgs.overmind
           pkgs.tmux
         ];
+      };
+
+      apps.${system}.mkdoc = {
+        type = "app";
+        program = toString (pkgs.writeShellScript "mkdoc" ''
+          cd "$(git rev-parse --show-toplevel)"
+          ${mkdocsPython}/bin/mkdocs build
+        '');
       };
     };
 }

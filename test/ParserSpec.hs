@@ -5,8 +5,8 @@ import Test.Hspec
 import Test.Hspec.Megaparsec
 import Text.Megaparsec
 import Data.Text (Text)
-import GhcLisp.Types
-import GhcLisp.Parser
+import Grasp.Types
+import Grasp.Parser
 
 spec :: Spec
 spec = describe "Parser" $ do

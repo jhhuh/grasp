@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module GhcLisp.HaskellInterop
+module Grasp.HaskellInterop
   ( defaultEnvWithInterop
   ) where
 
@@ -9,9 +9,9 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Foreign.StablePtr
 
-import GhcLisp.Types
-import GhcLisp.Eval (defaultEnv)
-import GhcLisp.RtsBridge (bridgeApplyIntInt)
+import Grasp.Types
+import Grasp.Eval (defaultEnv)
+import Grasp.RtsBridge (bridgeApplyIntInt)
 
 -- | Default environment extended with haskell-call
 defaultEnvWithInterop :: IO Env

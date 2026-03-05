@@ -1,0 +1,48 @@
+site_name: Grasp
+site_description: A Lisp that grasps the G-machine
+site_url: https://jhhuh.github.io/grasp/
+repo_url: https://github.com/jhhuh/grasp
+repo_name: jhhuh/grasp
+
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  features:
+    - navigation.sections
+    - navigation.expand
+    - content.code.copy
+    - toc.integrate
+
+nav:
+  - Home: index.md
+  - Motivation: motivation.md
+  - Language Reference: language.md
+  - Architecture: architecture.md
+  - The STG Machine: stg-machine.md
+  - Related Work: related-work.md
+  - Roadmap: roadmap.md
+
+markdown_extensions:
+  - tables
+  - fenced_code
+  - codehilite
+  - toc:
+      permalink: true
+  - admonition
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
