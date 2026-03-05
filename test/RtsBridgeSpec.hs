@@ -1,6 +1,7 @@
 module RtsBridgeSpec (spec) where
 
 import Test.Hspec
+import Data.Either (isLeft)
 import Foreign.StablePtr
 import Grasp.RtsBridge
 
@@ -15,7 +16,7 @@ spec = describe "RtsBridge" $ do
       val <- bridgeRoundtripInt (-7)
       val `shouldBe` (-7)
 
-  describe "rts_apply + rts_eval" $ do
+  describe "rts_apply + rts_eval (unsafe)" $ do
     it "applies a Haskell function via the RTS" $ do
       sp <- newStablePtr (succ :: Int -> Int)
       result <- bridgeApplyIntInt sp 41
@@ -27,3 +28,22 @@ spec = describe "RtsBridge" $ do
       result <- bridgeApplyIntInt sp 10
       freeStablePtr sp
       result `shouldBe` (-10)
+
+  describe "safe apply (bridgeSafeApplyIntInt)" $ do
+    it "applies succ safely" $ do
+      sp <- newStablePtr (succ :: Int -> Int)
+      result <- bridgeSafeApplyIntInt sp 41
+      freeStablePtr sp
+      result `shouldBe` Right 42
+
+    it "applies negate safely" $ do
+      sp <- newStablePtr (negate :: Int -> Int)
+      result <- bridgeSafeApplyIntInt sp 10
+      freeStablePtr sp
+      result `shouldBe` Right (-10)
+
+    it "returns Left on exception (does not abort)" $ do
+      sp <- newStablePtr ((\_ -> error "boom") :: Int -> Int)
+      result <- bridgeSafeApplyIntInt sp 0
+      freeStablePtr sp
+      result `shouldSatisfy` isLeft

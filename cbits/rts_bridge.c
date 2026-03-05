@@ -10,31 +10,31 @@ HsInt grasp_roundtrip_int(HsInt val)
     return result;
 }
 
+/* UNSAFE: rts_eval aborts the process on Haskell exceptions.
+   Kept for backward-compatible roundtrip tests. */
 HsInt grasp_apply_int_int(HsStablePtr fn_sp, HsInt arg)
 {
     Capability *cap = rts_lock();
-
-    /* Dereference the StablePtr to get the function closure */
     HaskellObj fn = (HaskellObj)deRefStablePtr(fn_sp);
-
-    /* Create the argument */
     HaskellObj harg = rts_mkInt(cap, arg);
-
-    /* Apply function to argument (creates a thunk) */
     HaskellObj app = rts_apply(cap, fn, harg);
-
-    /* Evaluate the application to WHNF.
-     * WARNING: If the Haskell function throws an exception, rts_eval
-     * will call barf() and abort the process. Use rts_evalIO with an
-     * exception-catching wrapper for production use.
-     * WARNING: These functions must not be called from code already
-     * executing under rts_lock() — that would deadlock. */
     HaskellObj result;
     rts_eval(&cap, app, &result);
-
-    /* Extract the Int result */
     HsInt ret = rts_getInt(result);
-
     rts_unlock(cap);
     return ret;
+}
+
+/* Build a thunk (fn arg) without evaluating it.
+   Returns a StablePtr to the unevaluated application.
+   Safe: only allocates, never forces. */
+HsStablePtr grasp_build_int_app(HsStablePtr fn_sp, HsInt arg)
+{
+    Capability *cap = rts_lock();
+    HaskellObj fn = (HaskellObj)deRefStablePtr(fn_sp);
+    HaskellObj harg = rts_mkInt(cap, arg);
+    HaskellObj app = rts_apply(cap, fn, harg);
+    HsStablePtr result_sp = getStablePtr((StgPtr)app);
+    rts_unlock(cap);
+    return result_sp;
 }

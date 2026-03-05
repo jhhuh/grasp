@@ -11,7 +11,7 @@ import Foreign.StablePtr
 
 import Grasp.Types
 import Grasp.Eval (defaultEnv)
-import Grasp.RtsBridge (bridgeApplyIntInt)
+import Grasp.RtsBridge (bridgeSafeApplyIntInt)
 
 -- | Default environment extended with haskell-call
 defaultEnvWithInterop :: IO Env
@@ -29,15 +29,19 @@ dispatchHaskellCall :: Text -> LispVal -> IO LispVal
 -- Int -> Int functions: route through C bridge (rts_apply/rts_eval)
 dispatchHaskellCall "succ" (LInt n) = do
   sp <- newStablePtr (succ :: Int -> Int)
-  result <- bridgeApplyIntInt sp (fromIntegral n)
+  result <- bridgeSafeApplyIntInt sp (fromIntegral n)
   freeStablePtr sp
-  pure $ LInt (fromIntegral result)
+  case result of
+    Right v -> pure $ LInt (fromIntegral v)
+    Left err -> error $ "haskell-call succ: " <> err
 
 dispatchHaskellCall "negate" (LInt n) = do
   sp <- newStablePtr (negate :: Int -> Int)
-  result <- bridgeApplyIntInt sp (fromIntegral n)
+  result <- bridgeSafeApplyIntInt sp (fromIntegral n)
   freeStablePtr sp
-  pure $ LInt (fromIntegral result)
+  case result of
+    Right v -> pure $ LInt (fromIntegral v)
+    Left err -> error $ "haskell-call negate: " <> err
 
 -- List functions: Haskell-side marshaling
 dispatchHaskellCall "reverse" listVal = do
