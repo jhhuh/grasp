@@ -13,25 +13,29 @@ import GHC.Exts (Any)
 import Grasp.Types
 import Grasp.NativeTypes
 import Grasp.HsRegistry (dispatchRegistered)
+import Grasp.DynDispatch (dynDispatch, dynDispatchAnnotated)
 
 defaultEnv :: IO Env
-defaultEnv = newIORef $ EnvData
-  { envBindings = Map.fromList
-      [ ("+", mkPrim "+" (numBinOp (+)))
-      , ("-", mkPrim "-" (numBinOp (-)))
-      , ("*", mkPrim "*" (numBinOp (*)))
-      , ("div", mkPrim "div" (numBinOp div))
-      , ("=", mkPrim "=" eqOp)
-      , ("<", mkPrim "<" (cmpOp (<)))
-      , (">", mkPrim ">" (cmpOp (>)))
-      , ("list", mkPrim "list" listOp)
-      , ("cons", mkPrim "cons" consOp)
-      , ("car", mkPrim "car" carOp)
-      , ("cdr", mkPrim "cdr" cdrOp)
-      , ("null?", mkPrim "null?" nullOp)
-      ]
-  , envHsRegistry = Map.empty
-  }
+defaultEnv = do
+  ghcRef <- newIORef Nothing
+  newIORef $ EnvData
+    { envBindings = Map.fromList
+        [ ("+", mkPrim "+" (numBinOp (+)))
+        , ("-", mkPrim "-" (numBinOp (-)))
+        , ("*", mkPrim "*" (numBinOp (*)))
+        , ("div", mkPrim "div" (numBinOp div))
+        , ("=", mkPrim "=" eqOp)
+        , ("<", mkPrim "<" (cmpOp (<)))
+        , (">", mkPrim ">" (cmpOp (>)))
+        , ("list", mkPrim "list" listOp)
+        , ("cons", mkPrim "cons" consOp)
+        , ("car", mkPrim "car" carOp)
+        , ("cdr", mkPrim "cdr" cdrOp)
+        , ("null?", mkPrim "null?" nullOp)
+        ]
+    , envHsRegistry = Map.empty
+    , envGhcSession = ghcRef
+    }
 
 numBinOp :: (Int -> Int -> Int) -> [Any] -> IO Any
 numBinOp op [a, b] = pure $ mkInt (op (toInt a) (toInt b))
@@ -89,12 +93,23 @@ eval env (EList (ESym "lambda" : EList params : body)) = do
   case body of
     [expr] -> pure $ mkLambda paramNames expr env
     _      -> error "lambda body must be a single expression"
--- hs: prefix dispatches to the Haskell function registry
+-- hs@ annotated form: (hs@ "expr :: Type" args...)
+eval env (EList (ESym "hs@" : exprArg : funcArgs)) = do
+  exprVal <- eval env exprArg
+  if graspTypeOf exprVal /= GTStr
+    then error "hs@: first argument must be a string"
+    else do
+      ed <- readIORef env
+      vals <- mapM (eval env) funcArgs
+      dynDispatchAnnotated (envGhcSession ed) (toStr exprVal) vals
+-- hs: prefix dispatches to registry, falls back to GHC API dynamic lookup
 eval env (EList (ESym name : args))
   | Just hsName <- T.stripPrefix "hs:" name = do
       ed <- readIORef env
       vals <- mapM (eval env) args
-      dispatchRegistered (envHsRegistry ed) hsName vals
+      case Map.lookup hsName (envHsRegistry ed) of
+        Just _  -> dispatchRegistered (envHsRegistry ed) hsName vals
+        Nothing -> dynDispatch (envGhcSession ed) hsName vals
 eval env (EList (fn : args)) = do
   f <- eval env fn
   vals <- mapM (eval env) args

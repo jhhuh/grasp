@@ -16,11 +16,15 @@ executable grasp
     Grasp.HsRegistry
     Grasp.HaskellInterop
     Grasp.NativeTypes
+    Grasp.DynLookup
+    Grasp.DynDispatch
   c-sources:      cbits/rts_bridge.c
   include-dirs:   cbits
   build-depends:
     , base        >= 4.18 && < 5
     , ghc-prim
+    , ghc
+    , ghc-paths
     , text
     , megaparsec
     , containers
@@ -44,11 +48,14 @@ test-suite grasp-test
     Grasp.HsRegistry
     Grasp.HaskellInterop
     Grasp.NativeTypes
+    Grasp.DynLookup
+    Grasp.DynDispatch
     ParserSpec
     EvalSpec
     RtsBridgeSpec
     InteropSpec
     NativeTypesSpec
+    DynLookupSpec
   c-sources:      cbits/rts_bridge.c
   include-dirs:   cbits
   build-tool-depends:
@@ -56,6 +63,8 @@ test-suite grasp-test
   build-depends:
     , base        >= 4.18 && < 5
     , ghc-prim
+    , ghc
+    , ghc-paths
     , text
     , megaparsec
     , containers

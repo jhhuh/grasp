@@ -2,7 +2,7 @@
 
 Grasp's MVP demonstrates that a dynamic Lisp can construct closures on GHC's heap and evaluate them through the STG machine. This page outlines where the project goes from here.
 
-## Current Status: Phase 1 Complete (Native STG Closures)
+## Current Status: Phase 2 Complete (Dynamic Function Lookup)
 
 What works:
 - S-expression parser (integers, strings, booleans, symbols, lists, quoting)
@@ -11,14 +11,16 @@ What works:
 - **Native GHC closures** — every runtime value is a real `StgClosure` on the GHC heap (`GraspVal = Any`)
 - **Type discrimination via `unpackClosure#`** — reads info-table addresses with zero FFI overhead
 - C bridge to GHC RTS (`rts_apply`, `rts_mkInt`, `rts_getInt`)
-- **`hs:` syntax** for calling Haskell functions: `(hs:succ 41)` → `42`
+- **`hs:` syntax** for calling any Haskell function: `(hs:Data.List.sort (list 3 1 2))` → `(1 2 3)`
+- **`hs@` syntax** for annotated polymorphic functions: `(hs@ "reverse :: [Int] -> [Int]" (list 1 2 3))`
+- **Dynamic GHC API lookup** — auto-infers types for monomorphic functions, caches compiled closures
 - **Type-safe function registry** with arity and type validation at the Grasp-Haskell boundary
 - **Safe evaluation** — Haskell exceptions are caught, not process-aborting
 - Legacy `haskell-call` backward compatibility
 - REPL with error recovery
-- 77 tests passing
+- 99 tests passing
 
-What the project proves: a dynamic Lisp can inhabit GHC's heap as a native tenant — Grasp integers ARE `I#` closures, booleans ARE `True`/`False`, and Grasp-specific types use Haskell ADTs whose info tables GHC generates automatically. Zero marshaling overhead for Haskell interop.
+What the project proves: a dynamic Lisp can inhabit GHC's heap as a native tenant and call arbitrary Haskell functions at runtime. Grasp integers ARE `I#` closures, booleans ARE `True`/`False`, and the GHC API compiles Haskell expressions to closures on the same heap.
 
 ## Phase 1: Native STG Closures ✓
 
@@ -33,25 +35,24 @@ Grasp values ARE STG closures. `GraspVal = Any` from `GHC.Exts` — every runtim
 
 The approach uses Haskell ADTs instead of hand-written C info tables, avoiding `TABLES_NEXT_TO_CODE` complexity while achieving the same goal: Grasp values are genuine GHC heap objects traced by the GC with zero marshaling overhead for Haskell interop.
 
-## Phase 2: Dynamic Function Lookup
+## Phase 2: Dynamic Function Lookup ✓
 
-**Goal**: Call any Haskell function by name at runtime.
+**Status**: Complete.
 
-Currently, `hs:` dispatches through a static registry of known functions. Phase 2 would look up Haskell functions dynamically using GHC's linker API:
+Any Haskell function can be called by name at runtime via the GHC API:
 
-```c
-#include "Rts.h"
-#include "Linker.h"
+- **`hs:` prefix** checks the static registry first (zero overhead), then falls back to GHC API lookup
+- **`hs@` form** handles polymorphic functions with explicit type annotations
+- The GHC API session is lazy-initialized on first dynamic lookup
+- Compiled closures and type info are cached after first call
+- Automatic type inference via `exprType` for monomorphic functions
+- Grasp↔Haskell marshaling for lists and strings
+- Re-boxing of bytecode interpreter values to match statically compiled info tables
 
-// Look up a symbol in loaded object files
-void* lookupSymbol(const char* name);
-```
-
-Combined with GHC's symbol naming conventions (Z-encoding), this would let Grasp call any Haskell function that's been compiled and linked into the executable — without enumerating them in advance.
-
-This would enable:
 ```lisp
 (hs:Data.List.sort (list 3 1 2))  ; => (1 2 3)
+(hs:abs -5)                       ; => 5
+(hs@ "reverse :: [Int] -> [Int]" (list 1 2 3))  ; => (3 2 1)
 ```
 
 ## Phase 3: Opt-in Laziness

@@ -70,5 +70,28 @@ spec = describe "Haskell Interop" $ do
       result `shouldSatisfy` isLeftContaining "expected Int"
 
     it "rejects hs: unknown function" $ do
-      result <- runError "(hs:nonexistent 42)"
-      result `shouldSatisfy` isLeftContaining "unknown Haskell function"
+      result <- runError "(hs:nonexistent_xyz 42)"
+      result `shouldSatisfy` isLeftContaining "nonexistent_xyz"
+
+  describe "hs: dynamic lookup fallback" $ do
+    it "calls abs (Prelude, not in registry)" $
+      run "(hs:abs -5)" `shouldReturn` "5"
+
+    it "calls not (Bool -> Bool)" $
+      run "(hs:not #f)" `shouldReturn` "#t"
+
+    it "calls Data.List.sort with list marshaling" $
+      run "(hs:Data.List.sort (list 3 1 2))" `shouldReturn` "(1 2 3)"
+
+    it "calls Data.List.nub with list marshaling" $
+      run "(hs:Data.List.nub (list 1 2 1 3 2))" `shouldReturn` "(1 2 3)"
+
+  describe "hs@ annotated form" $ do
+    it "calls sort with explicit type" $
+      run "(hs@ \"Data.List.sort :: [Int] -> [Int]\" (list 3 1 2))" `shouldReturn` "(1 2 3)"
+
+    it "calls reverse with explicit type" $
+      run "(hs@ \"reverse :: [Int] -> [Int]\" (list 1 2 3))" `shouldReturn` "(3 2 1)"
+
+    it "calls (+) with explicit type and two args" $
+      run "(hs@ \"(+) :: Int -> Int -> Int\" 10 32)" `shouldReturn` "42"

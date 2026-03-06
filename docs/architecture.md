@@ -45,7 +45,7 @@ Defines two type layers:
 
 - **`GraspVal = Any`** — the evaluator's output. An untyped pointer to a GHC heap closure. Integers are real `I#` closures, booleans are `True`/`False` static closures, and Grasp-specific types (symbols, strings, cons cells, lambdas, primitives) use Haskell ADTs defined in `Grasp.NativeTypes`.
 
-- **`EnvData`** — contains `envBindings :: Map Text GraspVal` (symbol table) and `envHsRegistry :: HsFuncRegistry` (registered Haskell functions with type metadata). `Env = IORef EnvData`. New bindings from `define` mutate `envBindings` in place. Lambda closures capture the `Env` reference, inheriting access to the registry.
+- **`EnvData`** — contains `envBindings :: Map Text GraspVal` (symbol table), `envHsRegistry :: HsFuncRegistry` (registered Haskell functions with type metadata), and `envGhcSession :: IORef (Maybe Any)` (lazy-initialized GHC API session for dynamic lookup, stored as `Any` to avoid circular imports). `Env = IORef EnvData`. New bindings from `define` mutate `envBindings` in place. Lambda closures capture the `Env` reference, inheriting access to the registry and GHC session.
 
 The two-type design keeps parsing pure and separates syntax from semantics.
 
@@ -124,6 +124,27 @@ Validates arity and argument types before invoking a registered Haskell function
 ### `Grasp.HaskellInterop` — Haskell function registry
 
 Builds the `HsFuncRegistry` and extends the default environment with both `haskell-call` (legacy) and the `hs:` prefix dispatch (via the registry stored in `EnvData`).
+
+### `Grasp.DynLookup` — GHC API session and type inference
+
+Isolates all GHC API usage. A lazy-initialized GHC session (`initGhcState`) provides `exprType` (type inference) and `compileExpr` (compilation to `Any`). Key components:
+
+- **`classifyType`** — maps GHC `Type` to `GraspArgType` (NativeInt, ListOf, etc.) using `tcSplitTyConApp_maybe` against builtin TyCons
+- **`decomposeFuncType`** — splits function types via `tcSplitFunTys` into args + return
+- **`dynCall`** / **`dynCallInferred`** — compile and apply functions via `unsafeCoerce` on closures
+- **`applyN`** — curried closure application: `f a b c` via sequential `unsafeCoerce`
+
+Uses `reifyGhc`/`reflectGhc` to persist the GHC session across calls without re-initializing.
+
+### `Grasp.DynDispatch` — Marshaling and dynamic dispatch
+
+Bridges between Grasp values and the GHC API. Handles:
+
+- **`getOrInitGhc`** — lazy GHC session initialization from `envGhcSession`
+- **`marshalGraspToHaskell`** / **`marshalHaskellToGrasp`** — convert between Grasp cons chains and Haskell lists, Grasp strings and Haskell `String`, etc.
+- **Re-boxing** — values returned by the GHC bytecode interpreter have different info table pointers than statically compiled closures; `reboxInt`/`reboxBool`/`reboxDouble` force fresh allocation with the current binary's constructors
+- **`dynDispatch`** — full cycle: type inference → marshaling → application → marshaling back. Falls back to type inference from actual arguments for polymorphic functions.
+- **`dynDispatchAnnotated`** — same but for `hs@` form with explicit type annotations
 
 **RTS bridge path** (`succ`, `negate`):
 1. `StablePtr` created once at registry construction
