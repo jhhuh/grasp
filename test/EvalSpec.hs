@@ -4,10 +4,10 @@ module EvalSpec (spec) where
 import Test.Hspec
 import qualified Data.Text as T
 import Grasp.Types
-import Grasp.Eval
+import Grasp.Eval (eval, defaultEnv, anyToExpr)
 import Grasp.Parser
 import Grasp.Printer
-import Grasp.NativeTypes (graspTypeOf, GraspType(..), forceIfLazy, toInt)
+import Grasp.NativeTypes (graspTypeOf, GraspType(..), forceIfLazy, toInt, mkInt, mkSym, mkCons, mkNil, mkBool, mkStr)
 
 -- Helper: parse + eval, return printed result
 run :: String -> IO String
@@ -156,3 +156,25 @@ spec = describe "Evaluator" $ do
           toInt r1 `shouldBe` 3
           toInt r2 `shouldBe` 3
         Left err -> error (show err)
+
+  describe "anyToExpr" $ do
+    it "converts int" $
+      anyToExpr (mkInt 42) `shouldBe` EInt 42
+
+    it "converts symbol" $
+      anyToExpr (mkSym "foo") `shouldBe` ESym "foo"
+
+    it "converts bool" $
+      anyToExpr (mkBool True) `shouldBe` EBool True
+
+    it "converts nil to empty list" $
+      anyToExpr mkNil `shouldBe` EList []
+
+    it "converts cons chain to list" $
+      anyToExpr (mkCons (mkInt 1) (mkCons (mkInt 2) mkNil)) `shouldBe` EList [EInt 1, EInt 2]
+
+    it "converts nested list" $
+      anyToExpr (mkCons (mkCons (mkInt 1) mkNil) mkNil) `shouldBe` EList [EList [EInt 1]]
+
+    it "converts string" $
+      anyToExpr (mkStr "hello") `shouldBe` EStr "hello"

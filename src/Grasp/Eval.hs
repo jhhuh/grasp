@@ -3,6 +3,7 @@
 module Grasp.Eval
   ( eval
   , defaultEnv
+  , anyToExpr
   ) where
 
 import Data.IORef
@@ -162,3 +163,23 @@ evalQuote (EBool b)   = pure $ mkBool b
 evalQuote (EList xs)  = do
   vals <- mapM evalQuote xs
   pure $ foldr mkCons mkNil vals
+
+-- | Convert a runtime value back to a LispExpr for macro expansion.
+anyToExpr :: Any -> LispExpr
+anyToExpr v = case graspTypeOf v of
+  GTInt       -> EInt (fromIntegral (toInt v))
+  GTDouble    -> EDouble (toDouble v)
+  GTBoolTrue  -> EBool True
+  GTBoolFalse -> EBool False
+  GTSym       -> ESym (toSym v)
+  GTStr       -> EStr (toStr v)
+  GTNil       -> EList []
+  GTCons      -> EList (consToExprList v)
+  t           -> error $ "cannot use " <> showGraspType t <> " as code in macro expansion"
+
+-- | Walk a cons chain, converting each element to LispExpr.
+consToExprList :: Any -> [LispExpr]
+consToExprList v
+  | isNil v   = []
+  | isCons v  = anyToExpr (toCar v) : consToExprList (toCdr v)
+  | otherwise = error "improper list in macro expansion"
