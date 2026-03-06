@@ -8,7 +8,7 @@ Grasp is a dynamically-typed, strict Lisp dialect with S-expression syntax. It r
 
 | Syntax | Type | Examples |
 |--------|------|----------|
-| Integers | Arbitrary-precision | `42`, `-7`, `0` |
+| Integers | 64-bit fixed-width (`Int`) | `42`, `-7`, `0` |
 | Doubles | IEEE 754 | `3.14`, `-0.5` |
 | Strings | Double-quoted | `"hello"`, `"with \"escapes\""` |
 | Booleans | Hash-prefixed | `#t`, `#f` |
@@ -45,7 +45,7 @@ The quote form prevents evaluation:
 'foo               ; => foo (a symbol, not looked up)
 ```
 
-Quoted lists become cons-cell chains at runtime. `'(1 2 3)` produces `(LCons 1 (LCons 2 (LCons 3 LNil)))`.
+Quoted lists become cons-cell chains at runtime. `'(1 2 3)` produces a chain of `GraspCons` closures terminated by `GraspNil`.
 
 ## Special Forms
 
@@ -227,7 +227,7 @@ This is the default for most Lisps and is the simplest model to start with. Opt-
 
 ### Environments
 
-Environments are mutable `IORef EnvData` values carrying both a symbol table (`Map Text LispVal`) and a Haskell function registry (`HsFuncRegistry`). Each lambda creates a child environment that inherits from its closure's environment:
+Environments are mutable `IORef EnvData` values carrying both a symbol table (`Map Text GraspVal`) and a Haskell function registry (`HsFuncRegistry`). Each lambda creates a child environment that inherits from its closure's environment:
 
 ```lisp
 (define x 10)
@@ -241,19 +241,21 @@ Note: because environments are `IORef`s, `define` mutates the environment in pla
 
 ## Types at Runtime
 
-Every Grasp value is a `LispVal`:
+Every Grasp value is a `GraspVal` (alias for `Any` from `GHC.Exts`) — an untyped pointer to a GHC heap closure. Type discrimination uses `unpackClosure#` to read info-table addresses at runtime.
 
-| Constructor | Description | Printed as |
-|-------------|-------------|------------|
-| `LInt n` | Arbitrary-precision integer | `42` |
-| `LDouble d` | Double-precision float | `3.14` |
-| `LSym s` | Symbol | `foo` |
-| `LStr s` | String | `"hello"` |
-| `LBool b` | Boolean | `#t` / `#f` |
-| `LCons a d` | Cons cell | `(1 2 3)` or `(1 . 2)` |
-| `LNil` | Empty list / nil | `()` |
-| `LFun` | Lambda closure | `<lambda>` |
-| `LPrimitive` | Built-in function | `<primitive:+>` |
+| GHC closure | Grasp type | Printed as |
+|-------------|------------|------------|
+| `I# n` | 64-bit integer | `42` |
+| `D# d` | Double-precision float | `3.14` |
+| `True` / `False` | Boolean | `#t` / `#f` |
+| `GraspSym s` | Symbol | `foo` |
+| `GraspStr s` | String | `"hello"` |
+| `GraspCons a d` | Cons cell | `(1 2 3)` or `(1 . 2)` |
+| `GraspNil` | Empty list / nil | `()` |
+| `GraspLambda` | Lambda closure | `<lambda>` |
+| `GraspPrim` | Built-in function | `<primitive:+>` |
+
+GHC-equivalent types (Int, Double, Bool) reuse GHC's own closures — a Grasp integer IS a Haskell `Int`, with zero marshaling overhead. Grasp-specific types use Haskell ADTs whose info tables GHC generates automatically.
 
 There is no type system. Any operation that receives an unexpected type will produce a runtime error.
 
