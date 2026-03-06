@@ -36,6 +36,8 @@ import Unsafe.Coerce (unsafeCoerce)
 import Data.Text (Text)
 import qualified Data.Text as T
 
+-- GraspLambda needs LispExpr and Env from Grasp.Types.
+-- This import direction avoids circular deps (Types doesn't import NativeTypes).
 import Grasp.Types (LispExpr, Env)
 
 -- ─── Grasp-specific ADTs ──────────────────────────────────
@@ -72,7 +74,13 @@ showGraspType GTPrim      = "Primitive"
 -- ─── Info pointer cache ───────────────────────────────────
 -- Each closure type has a unique info-table address.
 -- We cache them from reference closures and compare at runtime.
+-- NB: Changing field strictness on any ADT above produces a different
+-- info table, which would silently break graspTypeOf. If you add bangs,
+-- update the corresponding *InfoPtr sentinel to match.
 
+-- | Read the info-table pointer from a closure's header.
+-- `seq` forces evaluation first so we read the constructor's info pointer,
+-- not a thunk's or indirection's.
 getInfoPtr :: a -> Ptr ()
 getInfoPtr x = x `seq` case unpackClosure# x of (# info, _, _ #) -> Ptr info
 
