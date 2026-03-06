@@ -16,14 +16,15 @@ dispatchRegistered reg name args =
   case Map.lookup name reg of
     Nothing -> error $ "unknown Haskell function: " <> T.unpack name
     Just entry -> do
+      args' <- mapM forceIfLazy args
       let expected = hfArgTypes entry
-      if length args /= length expected
+      if length args' /= length expected
         then error $ T.unpack name <> ": expected "
                    <> show (length expected) <> " argument(s), got "
-                   <> show (length args)
+                   <> show (length args')
         else do
-          mapM_ (uncurry (checkType name)) (zip expected args)
-          hfInvoke entry args
+          mapM_ (uncurry (checkType name)) (zip expected args')
+          hfInvoke entry args'
 
 matchesType :: HsType -> Any -> Bool
 matchesType HsInt     v = graspTypeOf v == GTInt
