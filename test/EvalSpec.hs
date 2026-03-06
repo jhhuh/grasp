@@ -108,6 +108,27 @@ spec = describe "Evaluator" $ do
     it "nested force works" $
       run "(force (lazy (force (lazy 99))))" `shouldReturn` "99"
 
+    it "auto-forces in arithmetic" $
+      run "(+ (lazy 10) (lazy 20))" `shouldReturn` "30"
+
+    it "auto-forces in comparison" $
+      run "(< (lazy 1) (lazy 2))" `shouldReturn` "#t"
+
+    it "auto-forces in equality" $
+      run "(= (lazy 42) (lazy 42))" `shouldReturn` "#t"
+
+    it "auto-forces in car" $
+      run "(car (lazy (list 1 2 3)))" `shouldReturn` "1"
+
+    it "auto-forces in cdr" $
+      run "(cdr (lazy (list 1 2 3)))" `shouldReturn` "(2 3)"
+
+    it "auto-forces in null?" $
+      run "(null? (lazy '()))" `shouldReturn` "#t"
+
+    it "auto-forces in function application" $
+      run "((lazy (lambda (x) (+ x 1))) 5)" `shouldReturn` "6"
+
     it "lazy captures environment" $ do
       env <- defaultEnv
       case parseLisp "(define x 10)" of
