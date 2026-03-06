@@ -168,16 +168,47 @@ Improper lists (where cdr is not a list) print with dot notation:
 
 ## Haskell Interop
 
-Grasp can call compiled Haskell functions using the `hs:` prefix syntax:
+Grasp can call any Haskell function at runtime using the `hs:` prefix syntax:
 
 ```lisp
-(hs:succ 41)              ; => 42
-(hs:negate 5)             ; => -5
-(hs:reverse (list 1 2 3)) ; => (3 2 1)
-(hs:length (list 1 2 3))  ; => 3
+(hs:succ 41)                         ; => 42
+(hs:negate 5)                        ; => -5
+(hs:reverse (list 1 2 3))            ; => (3 2 1)
+(hs:abs -5)                          ; => 5
+(hs:not #f)                          ; => #t
+(hs:Data.List.sort (list 3 1 2))     ; => (1 2 3)
+(hs:Data.List.nub (list 1 2 1 3 2))  ; => (1 2 3)
 ```
 
-The legacy `haskell-call` form is also supported:
+The `hs:` prefix checks a static registry of pre-registered functions first (zero overhead), then falls back to the GHC API for dynamic lookup. Dynamic lookups are cached after the first call.
+
+### Annotated form (`hs@`)
+
+For polymorphic functions or functions with unsupported types, use `hs@` with an explicit type annotation:
+
+```lisp
+(hs@ "Data.List.sort :: [Int] -> [Int]" (list 3 1 2))  ; => (1 2 3)
+(hs@ "reverse :: [Int] -> [Int]" (list 1 2 3))         ; => (3 2 1)
+(hs@ "(+) :: Int -> Int -> Int" 10 32)                  ; => 42
+```
+
+The string argument is a Haskell expression with a type signature. The GHC API compiles it and uses the annotated type for marshaling decisions.
+
+### Supported types for dynamic lookup
+
+| GHC Type | Grasp Type | Marshaling | Notes |
+|----------|-----------|------------|-------|
+| `Int` | Integer | None (native I#) | Zero cost |
+| `Double` | Double | None (native D#) | Zero cost |
+| `Bool` | Boolean | None (native) | Zero cost |
+| `[a]` | Cons chain | Marshal cons↔list | `a` must be supported |
+| `String` | String | Text↔[Char] | Via `T.pack`/`T.unpack` |
+
+Types not in this table produce an error suggesting the `hs@` form.
+
+### Legacy form
+
+The `haskell-call` form is also supported:
 
 ```lisp
 (haskell-call "succ" 41)  ; => 42
@@ -185,35 +216,22 @@ The legacy `haskell-call` form is also supported:
 
 ### Type validation
 
-Each registered Haskell function has type metadata. Grasp validates argument types before calling:
+Registered functions have type metadata. Grasp validates argument types before calling:
 
 ```
 λ> (hs:succ "hello")
 error: succ: expected Int, got String
-λ> (hs:reverse 42)
-error: reverse: expected List[Int], got Int
 ```
-
-### Safe evaluation
-
-Haskell functions that throw exceptions do not crash the process. The RTS bridge builds thunks in C (via `rts_apply`) but forces them in Haskell using `try`/`evaluate`, catching exceptions safely.
 
 ### How it works
 
-Functions are dispatched through a typed registry (`HsFuncRegistry`). Two calling conventions are supported:
+Three dispatch paths exist:
 
-**RTS bridge (Int -> Int functions):** `succ` and `negate` go through the C bridge. A `StablePtr` is created once at registry construction. Each call uses `grasp_build_int_app` in C to build a thunk via `rts_apply`, then forces it safely in Haskell.
+**Static registry (fast path):** Pre-registered functions (`succ`, `negate`, `reverse`, `length`) are looked up in a `Map`. For `Int -> Int` functions, the C bridge builds thunks via `rts_apply`; list functions marshal cons chains to Haskell lists.
 
-**Haskell-side marshaling (list functions):** `reverse` and `length` marshal Grasp cons lists to Haskell `[Int]`, call the function directly, and marshal back.
+**Dynamic GHC API (fallback):** On registry miss, a lazy-initialized GHC API session (`runGhc`) infers the function's type via `exprType`, compiles it via `compileExpr`, marshals arguments, applies the compiled closure, and marshals the result back. The compiled closure and type info are cached.
 
-### Supported functions
-
-| Function | Input | Output | Calling convention |
-|----------|-------|--------|--------------------|
-| `succ` | Int | Int | RTS bridge |
-| `negate` | Int | Int | RTS bridge |
-| `reverse` | List[Int] | List[Int] | Haskell marshaling |
-| `length` | List[Int] | Int | Haskell marshaling |
+**Annotated (`hs@`):** The expression string includes a type annotation. The GHC API compiles it directly, using the annotated type for marshaling.
 
 ## Evaluation Model
 
