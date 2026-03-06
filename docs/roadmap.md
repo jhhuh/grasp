@@ -2,7 +2,7 @@
 
 Grasp's MVP demonstrates that a dynamic Lisp can construct closures on GHC's heap and evaluate them through the STG machine. This page outlines where the project goes from here.
 
-## Current Status: Phase 2 Complete (Dynamic Function Lookup)
+## Current Status: Phase 3 Complete (Opt-in Laziness)
 
 What works:
 - S-expression parser (integers, strings, booleans, symbols, lists, quoting)
@@ -16,11 +16,13 @@ What works:
 - **Dynamic GHC API lookup** — auto-infers types for monomorphic functions, caches compiled closures
 - **Type-safe function registry** with arity and type validation at the Grasp-Haskell boundary
 - **Safe evaluation** — Haskell exceptions are caught, not process-aborting
+- **`(lazy expr)` / `(force x)`** — opt-in laziness via real GHC THUNK closures with automatic memoization
+- **Auto-forcing** — lazy values are transparently forced at primitive, interop, and control flow boundaries
 - Legacy `haskell-call` backward compatibility
 - REPL with error recovery
-- 99 tests passing
+- 121 tests passing
 
-What the project proves: a dynamic Lisp can inhabit GHC's heap as a native tenant and call arbitrary Haskell functions at runtime. Grasp integers ARE `I#` closures, booleans ARE `True`/`False`, and the GHC API compiles Haskell expressions to closures on the same heap.
+What the project proves: a dynamic Lisp can inhabit GHC's heap as a native tenant, call arbitrary Haskell functions, and create real GHC thunks with standard update semantics. Grasp integers ARE `I#` closures, lazy values ARE GHC THUNKs, and the RTS's own evaluation machinery forces them.
 
 ## Phase 1: Native STG Closures ✓
 
@@ -55,20 +57,20 @@ Any Haskell function can be called by name at runtime via the GHC API:
 (hs@ "reverse :: [Int] -> [Int]" (list 1 2 3))  ; => (3 2 1)
 ```
 
-## Phase 3: Opt-in Laziness
+## Phase 3: Opt-in Laziness ✓
 
-**Goal**: Grasp expressions can be lazy, using real GHC thunks.
+**Status**: Complete.
 
-Grasp is strict by default, but some expressions could be lazily evaluated using GHC's own thunk mechanism:
+`(lazy expr)` creates a real GHC THUNK closure via `unsafeInterleaveIO`. The thunk participates in GHC's standard update mechanism: first force evaluates and replaces the thunk with an indirection (IND); subsequent accesses return the cached value instantly.
 
 ```lisp
-(define xs (lazy (expensive-computation)))  ; creates a THUNK
-(force xs)                                   ; evaluates the THUNK via rts_eval
+(define x (lazy (+ 1 2)))  ; x is a THUNK, not 3
+(force x)                   ; => 3 (evaluated, result cached)
+(+ (lazy 10) (lazy 20))    ; => 30 (auto-forced at primitive boundary)
+(hs:succ (lazy 41))         ; => 42 (auto-forced at interop boundary)
 ```
 
-The `lazy` form would allocate a `THUNK` closure on the GHC heap with a code pointer that calls back into Grasp's evaluator. When GHC's scheduler forces the thunk, it enters Grasp's evaluation, producing a result that's written back as an STG closure. The thunk then updates itself (becoming an `IND`) so subsequent accesses return the cached result.
-
-This is where the "native tenant" concept gets interesting: GHC's own evaluation mechanism would be forcing Grasp computations, and Grasp's computations would be producing GHC closures.
+The `GraspLazy` ADT wrapper provides type discrimination via the info-pointer cache. Lazy values are transparent at all boundaries — primitives, `if`, `=`, and Haskell interop auto-force before operating.
 
 ## Phase 4: Concurrency
 

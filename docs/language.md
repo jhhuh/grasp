@@ -241,7 +241,27 @@ Grasp is **strict** (call-by-value). All arguments are evaluated before function
 (define x (+ 1 2))  ; x is 3, not a thunk for (+ 1 2)
 ```
 
-This is the default for most Lisps and is the simplest model to start with. Opt-in laziness (through real GHC THUNK closures) is a planned future feature.
+### Opt-in Laziness
+
+Individual expressions can be deferred with `lazy`:
+
+```lisp
+(define x (lazy (+ 1 2)))  ; x is a THUNK, not 3
+(force x)                   ; => 3 (evaluated, result cached)
+(force x)                   ; => 3 (cached, not re-evaluated)
+```
+
+`(lazy expr)` creates a real GHC THUNK closure on the heap. The thunk is not evaluated until explicitly forced. GHC's standard update mechanism replaces the thunk with an indirection on first force, so subsequent accesses return the cached value.
+
+Primitives and Haskell interop auto-force lazy arguments:
+
+```lisp
+(+ (lazy 10) (lazy 20))     ; => 30 (auto-forced)
+(hs:succ (lazy 41))          ; => 42 (auto-forced)
+(if (lazy #t) "yes" "no")   ; => "yes" (auto-forced)
+```
+
+A lazy value prints as `<lazy>` without forcing it.
 
 ### Environments
 
@@ -272,6 +292,7 @@ Every Grasp value is a `GraspVal` (alias for `Any` from `GHC.Exts`) — an untyp
 | `GraspNil` | Empty list / nil | `()` |
 | `GraspLambda` | Lambda closure | `<lambda>` |
 | `GraspPrim` | Built-in function | `<primitive:+>` |
+| `GraspLazy` | Lazy thunk | `<lazy>` |
 
 GHC-equivalent types (Int, Double, Bool) reuse GHC's own closures — a Grasp integer IS a Haskell `Int`, with zero marshaling overhead. Grasp-specific types use Haskell ADTs whose info tables GHC generates automatically.
 

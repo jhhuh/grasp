@@ -51,12 +51,13 @@ The two-type design keeps parsing pure and separates syntax from semantics.
 
 ### `Grasp.NativeTypes` — Value representation and type discrimination
 
-Defines the Grasp-specific ADTs (`GraspSym`, `GraspStr`, `GraspCons`, `GraspNil`, `GraspLambda`, `GraspPrim`) whose info tables GHC generates automatically. Provides:
+Defines the Grasp-specific ADTs (`GraspSym`, `GraspStr`, `GraspCons`, `GraspNil`, `GraspLambda`, `GraspPrim`, `GraspLazy`) whose info tables GHC generates automatically. Provides:
 
 - **Type discrimination** — `graspTypeOf :: Any -> GraspType` reads the info-table address from a closure header via `unpackClosure#` and compares against cached reference addresses. Zero FFI overhead.
 - **Constructors** — `mkInt`, `mkBool`, `mkCons`, `mkLambda`, etc. wrap Haskell values as `Any` via `unsafeCoerce`.
 - **Extractors** — `toInt`, `toCar`, `toLambdaParts`, etc. unwrap `Any` back to concrete types.
-- **Equality** — `graspEq` performs structural equality with recursive cons comparison.
+- **Equality** — `graspEq` performs structural equality with recursive cons comparison, auto-forcing lazy values.
+- **Laziness** — `mkLazy`, `forceLazy`, `forceIfLazy` create and enter GHC THUNKs via `unsafeInterleaveIO`.
 
 ### `Grasp.Parser` — S-expression parser
 
@@ -80,16 +81,18 @@ A tree-walking interpreter. `eval :: Env -> LispExpr -> IO GraspVal` pattern-mat
 - **Atoms** — integers, doubles, strings, booleans evaluate to themselves (via `mkInt`, `mkBool`, etc.)
 - **Symbols** — looked up in the environment; error if unbound
 - **`(quote e)`** — converts expression to value without evaluation
-- **`(if c t e)`** — evaluates condition; only `#f` is falsy (`graspTypeOf c == GTBoolFalse`)
+- **`(if c t e)`** — evaluates condition (auto-forces lazy values); only `#f` is falsy
 - **`(define s e)`** — evaluates `e`, inserts binding into env
 - **`(lambda (params) body)`** — creates a `GraspLambda` closure capturing current env
+- **`(lazy expr)`** — defers evaluation via `unsafeInterleaveIO`, wraps in `GraspLazy`
+- **`(force expr)`** — enters the lazy thunk via `forceIfLazy`; identity on non-lazy values
 - **`(f args...)`** — evaluates `f` and all `args`, then calls `apply`
 
-`apply` dispatches on `graspTypeOf v`:
+`apply` dispatches on `graspTypeOf v` (auto-forces lazy functions):
 - `GTPrim` — extracts the function via `toPrimFn` and calls it
 - `GTLambda` — extracts params/body/closure via `toLambdaParts`, creates child environment with param bindings, evaluates body
 
-The evaluator is strict: all arguments are evaluated before `apply` is called.
+The evaluator is strict by default: all arguments are evaluated before `apply`. Primitives auto-force lazy arguments at their boundaries via `forceIfLazy`.
 
 ### `Grasp.Printer` — Value pretty-printer
 
