@@ -2,37 +2,36 @@
 
 Grasp's MVP demonstrates that a dynamic Lisp can construct closures on GHC's heap and evaluate them through the STG machine. This page outlines where the project goes from here.
 
-## Current Status: MVP + Safe Interop
+## Current Status: Phase 1 Complete (Native STG Closures)
 
 What works:
 - S-expression parser (integers, strings, booleans, symbols, lists, quoting)
 - Tree-walking evaluator (define, lambda, if, quote, closures)
 - 12 built-in primitives (arithmetic, comparison, list operations)
+- **Native GHC closures** — every runtime value is a real `StgClosure` on the GHC heap (`GraspVal = Any`)
+- **Type discrimination via `unpackClosure#`** — reads info-table addresses with zero FFI overhead
 - C bridge to GHC RTS (`rts_apply`, `rts_mkInt`, `rts_getInt`)
 - **`hs:` syntax** for calling Haskell functions: `(hs:succ 41)` → `42`
 - **Type-safe function registry** with arity and type validation at the Grasp-Haskell boundary
 - **Safe evaluation** — Haskell exceptions are caught, not process-aborting
 - Legacy `haskell-call` backward compatibility
 - REPL with error recovery
-- 48 tests passing
+- 77 tests passing
 
-What the MVP proves: you can use the RTS C API to construct values on GHC's heap, apply Haskell functions to them, evaluate the result safely, and extract the answer — all from a dynamic language with no compilation step.
+What the project proves: a dynamic Lisp can inhabit GHC's heap as a native tenant — Grasp integers ARE `I#` closures, booleans ARE `True`/`False`, and Grasp-specific types use Haskell ADTs whose info tables GHC generates automatically. Zero marshaling overhead for Haskell interop.
 
-## Phase 1: Native STG Closures
+## Phase 1: Native STG Closures ✓
 
-**Goal**: Grasp values ARE STG closures, not Haskell ADTs.
+**Status**: Complete.
 
-Currently, a Grasp integer like `42` is represented as `LInt 42` — a Haskell data constructor. This works, but it's still a Haskell value that happens to represent a Lisp integer.
+Grasp values ARE STG closures. `GraspVal = Any` from `GHC.Exts` — every runtime value is an untyped pointer to a GHC heap closure:
 
-In Phase 1, Grasp would construct its own closures on the GHC heap using `allocate()` from the RTS, writing info pointers and payloads directly. A Grasp integer would be an `StgClosure` with a custom info table — indistinguishable from a GHC-compiled boxed `Int`.
+- GHC-equivalent types (Int, Double, Bool) reuse GHC's own closures directly
+- Grasp-specific types (Sym, Str, Cons, Nil, Lambda, Prim) use Haskell ADTs whose info tables GHC generates automatically
+- Type discrimination via `unpackClosure#` reading info-table addresses (no FFI round-trip)
+- Integer precision changed from arbitrary (`Integer`) to 64-bit fixed-width (`Int`)
 
-This requires:
-- Writing custom info tables in C (or generating them)
-- Using `allocate(cap, n)` to allocate raw closure space
-- Using `SET_HDR(closure, info_ptr, ccs)` to set the info pointer
-- Ensuring the GC can trace these closures (correct pointer/non-pointer layout in the info table)
-
-This is the critical step toward "native tenant" status. Once Grasp values are raw closures, they can be passed to Haskell functions without any marshaling.
+The approach uses Haskell ADTs instead of hand-written C info tables, avoiding `TABLES_NEXT_TO_CODE` complexity while achieving the same goal: Grasp values are genuine GHC heap objects traced by the GC with zero marshaling overhead for Haskell interop.
 
 ## Phase 2: Dynamic Function Lookup
 

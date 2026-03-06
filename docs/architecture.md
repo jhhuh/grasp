@@ -39,15 +39,24 @@ The entry point. Reads a line, parses it, evaluates it, prints the result, and l
 
 ### `Grasp.Types` — Core type definitions
 
-Defines two parallel type hierarchies:
+Defines two type layers:
 
 - **`LispExpr`** — the parser's output. A plain algebraic data type representing S-expression syntax: `EInt`, `EDouble`, `ESym`, `EStr`, `EBool`, `EList`. No closures, no environments — just syntax.
 
-- **`LispVal`** — the evaluator's output. Runtime values that include everything `LispExpr` has, plus cons cells (`LCons`/`LNil`), lambda closures (`LFun` with captured environment), and primitive functions (`LPrimitive` wrapping `[LispVal] -> IO LispVal`).
+- **`GraspVal = Any`** — the evaluator's output. An untyped pointer to a GHC heap closure. Integers are real `I#` closures, booleans are `True`/`False` static closures, and Grasp-specific types (symbols, strings, cons cells, lambdas, primitives) use Haskell ADTs defined in `Grasp.NativeTypes`.
 
-- **`EnvData`** — contains `envBindings :: Map Text LispVal` (symbol table) and `envHsRegistry :: HsFuncRegistry` (registered Haskell functions with type metadata). `Env = IORef EnvData`. New bindings from `define` mutate `envBindings` in place. Lambda closures capture the `Env` reference, inheriting access to the registry.
+- **`EnvData`** — contains `envBindings :: Map Text GraspVal` (symbol table) and `envHsRegistry :: HsFuncRegistry` (registered Haskell functions with type metadata). `Env = IORef EnvData`. New bindings from `define` mutate `envBindings` in place. Lambda closures capture the `Env` reference, inheriting access to the registry.
 
 The two-type design keeps parsing pure and separates syntax from semantics.
+
+### `Grasp.NativeTypes` — Value representation and type discrimination
+
+Defines the Grasp-specific ADTs (`GraspSym`, `GraspStr`, `GraspCons`, `GraspNil`, `GraspLambda`, `GraspPrim`) whose info tables GHC generates automatically. Provides:
+
+- **Type discrimination** — `graspTypeOf :: Any -> GraspType` reads the info-table address from a closure header via `unpackClosure#` and compares against cached reference addresses. Zero FFI overhead.
+- **Constructors** — `mkInt`, `mkBool`, `mkCons`, `mkLambda`, etc. wrap Haskell values as `Any` via `unsafeCoerce`.
+- **Extractors** — `toInt`, `toCar`, `toLambdaParts`, etc. unwrap `Any` back to concrete types.
+- **Equality** — `graspEq` performs structural equality with recursive cons comparison.
 
 ### `Grasp.Parser` — S-expression parser
 
@@ -66,25 +75,25 @@ Parser precedence in `pExpr`: `pBool | pStr | pQuote | pList | try pInt | pSym`.
 
 ### `Grasp.Eval` — Core evaluator
 
-A tree-walking interpreter. `eval :: Env -> LispExpr -> IO LispVal` pattern-matches on expression constructors:
+A tree-walking interpreter. `eval :: Env -> LispExpr -> IO GraspVal` pattern-matches on expression constructors:
 
-- **Atoms** — integers, doubles, strings, booleans evaluate to themselves
+- **Atoms** — integers, doubles, strings, booleans evaluate to themselves (via `mkInt`, `mkBool`, etc.)
 - **Symbols** — looked up in the environment; error if unbound
 - **`(quote e)`** — converts expression to value without evaluation
-- **`(if c t e)`** — evaluates condition; only `#f` is falsy
+- **`(if c t e)`** — evaluates condition; only `#f` is falsy (`graspTypeOf c == GTBoolFalse`)
 - **`(define s e)`** — evaluates `e`, inserts binding into env
-- **`(lambda (params) body)`** — creates `LFun` capturing current env
+- **`(lambda (params) body)`** — creates a `GraspLambda` closure capturing current env
 - **`(f args...)`** — evaluates `f` and all `args`, then calls `apply`
 
-`apply` dispatches on function type:
-- `LPrimitive` — calls the wrapped `[LispVal] -> IO LispVal`
-- `LFun` — creates child environment with param bindings layered over the closure's environment, then evaluates the body
+`apply` dispatches on `graspTypeOf v`:
+- `GTPrim` — extracts the function via `toPrimFn` and calls it
+- `GTLambda` — extracts params/body/closure via `toLambdaParts`, creates child environment with param bindings, evaluates body
 
 The evaluator is strict: all arguments are evaluated before `apply` is called.
 
 ### `Grasp.Printer` — Value pretty-printer
 
-Converts `LispVal` to `String`. The interesting case is cons cells: `printCons` walks the cdr chain to print proper lists as `(1 2 3)` and improper lists as `(1 . 2)`.
+Converts `Any` to `String` via `graspTypeOf` dispatch. The interesting case is cons cells: `printCons` uses `isNil`/`isCons` predicates to walk the cdr chain, printing proper lists as `(1 2 3)` and improper lists as `(1 . 2)`.
 
 ### `Grasp.RtsBridge` — FFI bindings
 
@@ -120,7 +129,7 @@ Builds the `HsFuncRegistry` and extends the default environment with both `haske
 1. `StablePtr` created once at registry construction
 2. Each call: `grasp_build_int_app` builds thunk in C via `rts_apply`
 3. Thunk forced safely in Haskell via `try`/`evaluate`
-4. Exception → error message; success → `LInt` result
+4. Exception → error message; success → `mkInt` result
 
 **Haskell marshaling path** (`reverse`, `length`):
 1. Marshal Grasp cons list to `[Int]`
@@ -175,8 +184,8 @@ Here is the complete path a Haskell interop call takes:
 
 2. Eval:     eval sees "hs:" prefix, strips it → "succ"
              → looks up registry in EnvData
-             → validates: [LInt 41] matches [HsInt]
-             → calls hfInvoke [LInt 41]
+             → validates: graspTypeOf arg == GTInt matches [HsInt]
+             → calls hfInvoke [arg]
 
 3. Registry: bridgeSafeApplyIntInt sp 41
              (StablePtr created once at registry construction)
@@ -197,7 +206,7 @@ Here is the complete path a Haskell interop call takes:
              freeStablePtr result_sp
              → Right 42
 
-7. Back:     → LInt 42
+7. Back:     → mkInt 42 (a real I# closure on the GHC heap)
              → printVal → "42"
 ```
 

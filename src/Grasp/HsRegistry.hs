@@ -6,11 +6,12 @@ module Grasp.HsRegistry
 import Data.Text (Text)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
+import GHC.Exts (Any)
 
 import Grasp.Types
+import Grasp.NativeTypes
 
--- | Look up a Haskell function, validate arg types, invoke.
-dispatchRegistered :: HsFuncRegistry -> Text -> [LispVal] -> IO LispVal
+dispatchRegistered :: HsFuncRegistry -> Text -> [GraspVal] -> IO GraspVal
 dispatchRegistered reg name args =
   case Map.lookup name reg of
     Nothing -> error $ "unknown Haskell function: " <> T.unpack name
@@ -24,19 +25,21 @@ dispatchRegistered reg name args =
           mapM_ (uncurry (checkType name)) (zip expected args)
           hfInvoke entry args
 
-checkType :: Text -> HsType -> LispVal -> IO ()
+matchesType :: HsType -> Any -> Bool
+matchesType HsInt     v = graspTypeOf v == GTInt
+matchesType HsBool    v = graspTypeOf v == GTBoolTrue || graspTypeOf v == GTBoolFalse
+matchesType HsString  v = graspTypeOf v == GTStr
+matchesType HsListInt v
+  | isNil v   = True
+  | isCons v  = graspTypeOf (toCar v) == GTInt && matchesType HsListInt (toCdr v)
+  | otherwise = False
+
+checkType :: Text -> HsType -> Any -> IO ()
 checkType name expected val
   | matchesType expected val = pure ()
   | otherwise = error $ T.unpack name <> ": expected "
-              <> showHsType expected <> ", got " <> valTypeName val
-
-matchesType :: HsType -> LispVal -> Bool
-matchesType HsInt     (LInt _)    = True
-matchesType HsBool    (LBool _)   = True
-matchesType HsString  (LStr _)    = True
-matchesType HsListInt LNil        = True
-matchesType HsListInt (LCons (LInt _) rest) = matchesType HsListInt rest
-matchesType _ _ = False
+                      <> showHsType expected <> ", got "
+                      <> valTypeName val
 
 showHsType :: HsType -> String
 showHsType HsInt     = "Int"
@@ -44,13 +47,5 @@ showHsType HsListInt = "List[Int]"
 showHsType HsBool    = "Bool"
 showHsType HsString  = "String"
 
-valTypeName :: LispVal -> String
-valTypeName (LInt _)       = "Int"
-valTypeName (LDouble _)    = "Double"
-valTypeName (LStr _)       = "String"
-valTypeName (LBool _)      = "Bool"
-valTypeName (LSym _)       = "Symbol"
-valTypeName LNil           = "Nil"
-valTypeName (LCons _ _)    = "List"
-valTypeName (LFun{})       = "Lambda"
-valTypeName (LPrimitive{}) = "Primitive"
+valTypeName :: Any -> String
+valTypeName = showGraspType . graspTypeOf

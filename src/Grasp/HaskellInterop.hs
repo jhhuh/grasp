@@ -10,8 +10,10 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import Foreign.StablePtr
+import GHC.Exts (Any)
 
 import Grasp.Types
+import Grasp.NativeTypes
 import Grasp.Eval (defaultEnv)
 import Grasp.RtsBridge (bridgeSafeApplyIntInt)
 import Grasp.HsRegistry (dispatchRegistered)
@@ -23,14 +25,15 @@ defaultEnvWithInterop = do
   reg <- defaultRegistry
   modifyIORef' env $ \ed -> ed
     { envBindings = Map.insert "haskell-call"
-        (LPrimitive "haskell-call" (haskellCall reg))
+        (mkPrim "haskell-call" (haskellCall reg))
         (envBindings ed)
     , envHsRegistry = reg
     }
   pure env
 
-haskellCall :: HsFuncRegistry -> [LispVal] -> IO LispVal
-haskellCall reg (LStr name : args) = dispatchRegistered reg name args
+haskellCall :: HsFuncRegistry -> [Any] -> IO Any
+haskellCall reg (nameVal : args)
+  | graspTypeOf nameVal == GTStr = dispatchRegistered reg (toStr nameVal) args
 haskellCall _ _ = error "haskell-call expects (haskell-call \"name\" args...)"
 
 -- | Build the default registry of Haskell functions
@@ -50,27 +53,28 @@ mkIntIntEntry :: Text -> (Int -> Int) -> IO HsFuncEntry
 mkIntIntEntry name f = do
   sp <- newStablePtr f
   pure $ HsFuncEntry [HsInt] HsInt $ \case
-    [LInt n] -> do
-      result <- bridgeSafeApplyIntInt sp (fromIntegral n)
+    [v] -> do
+      result <- bridgeSafeApplyIntInt sp (toInt v)
       case result of
-        Right v -> pure $ LInt (fromIntegral v)
+        Right r -> pure $ mkInt r
         Left err -> error $ T.unpack name <> ": " <> err
     _ -> error $ "internal: " <> T.unpack name <> " called with invalid args after validation"
 
-hsReverse :: [LispVal] -> IO LispVal
+hsReverse :: [Any] -> IO Any
 hsReverse [listVal] = pure $ fromHaskellListInt (reverse (toHaskellListInt listVal))
 hsReverse args = error $ "internal: reverse called with " <> show (length args) <> " args after validation"
 
-hsLength :: [LispVal] -> IO LispVal
-hsLength [listVal] = pure $ LInt (fromIntegral (length (toHaskellListInt listVal)))
+hsLength :: [Any] -> IO Any
+hsLength [listVal] = pure $ mkInt (length (toHaskellListInt listVal))
 hsLength args = error $ "internal: length called with " <> show (length args) <> " args after validation"
 
--- | Marshal LispVal cons list to Haskell [Int]
-toHaskellListInt :: LispVal -> [Int]
-toHaskellListInt LNil = []
-toHaskellListInt (LCons (LInt n) rest) = fromIntegral n : toHaskellListInt rest
-toHaskellListInt _ = error "expected list of integers"
+-- | Marshal GraspVal cons list to Haskell [Int]
+toHaskellListInt :: Any -> [Int]
+toHaskellListInt v
+  | isNil v   = []
+  | isCons v  = toInt (toCar v) : toHaskellListInt (toCdr v)
+  | otherwise = error "expected list of integers"
 
--- | Marshal Haskell [Int] to LispVal cons list
-fromHaskellListInt :: [Int] -> LispVal
-fromHaskellListInt = foldr (\x acc -> LCons (LInt (fromIntegral x)) acc) LNil
+-- | Marshal Haskell [Int] to GraspVal cons list
+fromHaskellListInt :: [Int] -> Any
+fromHaskellListInt = foldr (\x acc -> mkCons (mkInt x) acc) mkNil

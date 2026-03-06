@@ -15,10 +15,12 @@ executable grasp
     Grasp.RtsBridge
     Grasp.HsRegistry
     Grasp.HaskellInterop
+    Grasp.NativeTypes
   c-sources:      cbits/rts_bridge.c
   include-dirs:   cbits
   build-depends:
     , base        >= 4.18 && < 5
+    , ghc-prim
     , text
     , megaparsec
     , containers
@@ -41,16 +43,19 @@ test-suite grasp-test
     Grasp.RtsBridge
     Grasp.HsRegistry
     Grasp.HaskellInterop
+    Grasp.NativeTypes
     ParserSpec
     EvalSpec
     RtsBridgeSpec
     InteropSpec
+    NativeTypesSpec
   c-sources:      cbits/rts_bridge.c
   include-dirs:   cbits
   build-tool-depends:
     hspec-discover:hspec-discover
   build-depends:
     , base        >= 4.18 && < 5
+    , ghc-prim
     , text
     , megaparsec
     , containers
