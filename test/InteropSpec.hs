@@ -3,6 +3,7 @@ module InteropSpec (spec) where
 import Test.Hspec
 import qualified Data.Text as T
 import Control.Exception (evaluate, try, SomeException)
+import Data.List (isInfixOf)
 import Grasp.Types
 import Grasp.Eval
 import Grasp.Parser
@@ -22,6 +23,10 @@ run input = do
 -- Helper: parse + eval, expect error
 runError :: String -> IO (Either SomeException String)
 runError input = try (run input >>= evaluate)
+
+isLeftContaining :: String -> Either SomeException a -> Bool
+isLeftContaining needle (Left e) = needle `isInfixOf` show e
+isLeftContaining _ (Right _) = False
 
 spec :: Spec
 spec = describe "Haskell Interop" $ do
@@ -60,15 +65,10 @@ spec = describe "Haskell Interop" $ do
       result <- runError "(haskell-call \"nonexistent\" 42)"
       result `shouldSatisfy` isLeftContaining "unknown Haskell function"
 
-isLeftContaining :: String -> Either SomeException a -> Bool
-isLeftContaining needle (Left e) = needle `isInfixOf'` show e
-isLeftContaining _ (Right _) = False
+    it "rejects hs: type mismatch" $ do
+      result <- runError "(hs:succ \"hello\")"
+      result `shouldSatisfy` isLeftContaining "expected Int"
 
-isInfixOf' :: String -> String -> Bool
-isInfixOf' needle haystack = any (startsWith needle) (tails' haystack)
-  where
-    startsWith [] _ = True
-    startsWith _ [] = False
-    startsWith (n:ns) (h:hs) = n == h && startsWith ns hs
-    tails' [] = [[]]
-    tails' xs@(_:rest) = xs : tails' rest
+    it "rejects hs: unknown function" $ do
+      result <- runError "(hs:nonexistent 42)"
+      result `shouldSatisfy` isLeftContaining "unknown Haskell function"

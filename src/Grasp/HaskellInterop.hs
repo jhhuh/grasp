@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Grasp.HaskellInterop
   ( defaultEnvWithInterop
@@ -7,6 +8,7 @@ module Grasp.HaskellInterop
 import Data.IORef
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
+import qualified Data.Text as T
 import Foreign.StablePtr
 
 import Grasp.Types
@@ -28,8 +30,8 @@ defaultEnvWithInterop = do
   pure env
 
 haskellCall :: HsFuncRegistry -> [LispVal] -> IO LispVal
-haskellCall reg [LStr name, arg] = dispatchRegistered reg name [arg]
-haskellCall _ _ = error "haskell-call expects (haskell-call \"name\" arg)"
+haskellCall reg (LStr name : args) = dispatchRegistered reg name args
+haskellCall _ _ = error "haskell-call expects (haskell-call \"name\" args...)"
 
 -- | Build the default registry of Haskell functions
 defaultRegistry :: IO HsFuncRegistry
@@ -47,19 +49,21 @@ defaultRegistry = do
 mkIntIntEntry :: Text -> (Int -> Int) -> IO HsFuncEntry
 mkIntIntEntry name f = do
   sp <- newStablePtr f
-  pure $ HsFuncEntry [HsInt] HsInt $ \[LInt n] -> do
-    result <- bridgeSafeApplyIntInt sp (fromIntegral n)
-    case result of
-      Right v -> pure $ LInt (fromIntegral v)
-      Left err -> error $ show name <> ": " <> err
+  pure $ HsFuncEntry [HsInt] HsInt $ \case
+    [LInt n] -> do
+      result <- bridgeSafeApplyIntInt sp (fromIntegral n)
+      case result of
+        Right v -> pure $ LInt (fromIntegral v)
+        Left err -> error $ T.unpack name <> ": " <> err
+    _ -> error $ "internal: " <> T.unpack name <> " called with invalid args after validation"
 
 hsReverse :: [LispVal] -> IO LispVal
 hsReverse [listVal] = pure $ fromHaskellListInt (reverse (toHaskellListInt listVal))
-hsReverse _ = error "reverse: expected 1 argument"
+hsReverse args = error $ "internal: reverse called with " <> show (length args) <> " args after validation"
 
 hsLength :: [LispVal] -> IO LispVal
 hsLength [listVal] = pure $ LInt (fromIntegral (length (toHaskellListInt listVal)))
-hsLength _ = error "length: expected 1 argument"
+hsLength args = error $ "internal: length called with " <> show (length args) <> " args after validation"
 
 -- | Marshal LispVal cons list to Haskell [Int]
 toHaskellListInt :: LispVal -> [Int]
