@@ -7,7 +7,7 @@ import Grasp.Types
 import Grasp.Eval
 import Grasp.Parser
 import Grasp.Printer
-import Grasp.NativeTypes (graspTypeOf, GraspType(..))
+import Grasp.NativeTypes (graspTypeOf, GraspType(..), forceIfLazy, toInt)
 
 -- Helper: parse + eval, return printed result
 run :: String -> IO String
@@ -144,4 +144,15 @@ spec = describe "Evaluator" $ do
               val <- eval env expr
               printVal val `shouldBe` "15"
             Left err -> error (show err)
+        Left err -> error (show err)
+
+    it "memoizes after first force (thunk update)" $ do
+      env <- defaultEnv
+      case parseLisp "(lazy (+ 1 2))" of
+        Right expr -> do
+          lazyVal <- eval env expr
+          r1 <- forceIfLazy lazyVal
+          r2 <- forceIfLazy lazyVal
+          toInt r1 `shouldBe` 3
+          toInt r2 `shouldBe` 3
         Left err -> error (show err)
