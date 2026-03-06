@@ -21,6 +21,8 @@ executable grasp
   build-depends:
     , base        >= 4.18 && < 5
     , ghc-prim
+    , ghc
+    , ghc-paths
     , text
     , megaparsec
     , containers
@@ -56,6 +58,8 @@ test-suite grasp-test
   build-depends:
     , base        >= 4.18 && < 5
     , ghc-prim
+    , ghc
+    , ghc-paths
     , text
     , megaparsec
     , containers
