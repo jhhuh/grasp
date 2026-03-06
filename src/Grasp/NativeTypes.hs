@@ -10,6 +10,7 @@ module Grasp.NativeTypes
   , GraspLambda(..)
   , GraspPrim(..)
   , GraspLazy(..)
+  , GraspMacro(..)
   -- * Type discrimination
   , GraspType(..)
   , graspTypeOf
@@ -19,12 +20,14 @@ module Grasp.NativeTypes
   , mkCons, mkNil
   , mkLambda, mkPrim
   , mkLazy
+  , mkMacro
   -- * Extractors
   , toInt, toDouble, toBool
   , toSym, toStr
   , toCar, toCdr
   , toLambdaParts, toPrimFn, toPrimName
   , forceLazy, forceIfLazy
+  , toMacroParts
   -- * Predicates
   , isNil, isCons
   -- * Equality
@@ -54,13 +57,14 @@ data GraspNil    = GraspNil
 data GraspLambda = GraspLambda [Text] LispExpr Env
 data GraspPrim   = GraspPrim Text ([Any] -> IO Any)
 data GraspLazy   = GraspLazy Any  -- lazy field: holds a GHC THUNK
+data GraspMacro  = GraspMacro [Text] LispExpr Env
 
 -- ─── Type tags ────────────────────────────────────────────
 
 data GraspType
   = GTInt | GTDouble | GTBoolTrue | GTBoolFalse
   | GTSym | GTStr | GTCons | GTNil
-  | GTLambda | GTPrim | GTLazy
+  | GTLambda | GTPrim | GTLazy | GTMacro
   deriving (Eq, Show)
 
 showGraspType :: GraspType -> String
@@ -75,6 +79,7 @@ showGraspType GTNil       = "Nil"
 showGraspType GTLambda    = "Lambda"
 showGraspType GTPrim      = "Primitive"
 showGraspType GTLazy      = "Lazy"
+showGraspType GTMacro     = "Macro"
 
 -- ─── Info pointer cache ───────────────────────────────────
 -- Each closure type has a unique info-table address.
@@ -133,6 +138,10 @@ primInfoPtr = getInfoPtr (GraspPrim undefined undefined)
 lazyInfoPtr :: Ptr ()
 lazyInfoPtr = getInfoPtr (GraspLazy (unsafeCoerce ()))
 
+{-# NOINLINE macroInfoPtr #-}
+macroInfoPtr :: Ptr ()
+macroInfoPtr = getInfoPtr (GraspMacro undefined undefined undefined)
+
 -- ─── Type discrimination ─────────────────────────────────
 
 graspTypeOf :: Any -> GraspType
@@ -148,6 +157,7 @@ graspTypeOf v = let p = getInfoPtr v in
   else if p == lambdaInfoPtr then GTLambda
   else if p == primInfoPtr   then GTPrim
   else if p == lazyInfoPtr   then GTLazy
+  else if p == macroInfoPtr  then GTMacro
   else error $ "unknown closure type at " ++ show p
 
 -- ─── Constructors ─────────────────────────────────────────
@@ -182,6 +192,9 @@ mkPrim name f = unsafeCoerce (GraspPrim name f)
 mkLazy :: Any -> Any
 mkLazy v = unsafeCoerce (GraspLazy v)
 
+mkMacro :: [Text] -> LispExpr -> Env -> Any
+mkMacro params body env = unsafeCoerce (GraspMacro params body env)
+
 -- ─── Extractors ───────────────────────────────────────────
 
 toInt :: Any -> Int
@@ -213,6 +226,9 @@ toPrimFn v = let GraspPrim _ f = unsafeCoerce v in f
 
 toPrimName :: Any -> Text
 toPrimName v = let GraspPrim n _ = unsafeCoerce v in n
+
+toMacroParts :: Any -> ([Text], LispExpr, Env)
+toMacroParts v = let GraspMacro p b e = unsafeCoerce v in (p, b, e)
 
 forceLazy :: Any -> IO Any
 forceLazy v = let GraspLazy inner = unsafeCoerce v in inner `seq` pure inner

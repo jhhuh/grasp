@@ -3,6 +3,7 @@
 module Grasp.Eval
   ( eval
   , defaultEnv
+  , anyToExpr
   ) where
 
 import Data.IORef
@@ -109,6 +110,12 @@ eval env (EList (ESym "lambda" : EList params : body)) = do
   case body of
     [expr] -> pure $ mkLambda paramNames expr env
     _      -> error "lambda body must be a single expression"
+-- defmacro: define a macro
+eval env (EList [ESym "defmacro", ESym name, EList params, body]) = do
+  let paramNames = map (\case ESym s -> s; _ -> error "macro params must be symbols") params
+  let macro = mkMacro paramNames body env
+  modifyIORef' env $ \ed -> ed { envBindings = Map.insert name macro (envBindings ed) }
+  pure macro
 -- lazy: defer evaluation into a real GHC THUNK
 eval env (EList [ESym "lazy", body]) = do
   thunk <- unsafeInterleaveIO (eval env body)
@@ -136,8 +143,20 @@ eval env (EList (ESym name : args))
         Nothing -> dynDispatch (envGhcSession ed) hsName vals
 eval env (EList (fn : args)) = do
   f <- eval env fn
-  vals <- mapM (eval env) args
-  apply f vals
+  f' <- forceIfLazy f
+  case graspTypeOf f' of
+    GTMacro -> do
+      quotedArgs <- mapM evalQuote args
+      let (params, body, closure) = toMacroParts f'
+      let bindings = Map.fromList (zip params quotedArgs)
+      parentEd <- readIORef closure
+      childEnv <- newIORef $ parentEd { envBindings = Map.union bindings (envBindings parentEd) }
+      expansion <- eval childEnv body
+      eval env (anyToExpr expansion)
+    _ -> do
+      vals <- mapM (eval env) args
+      apply f' vals
+eval _ (EList []) = pure mkNil
 eval _ e = error $ "cannot eval: " <> show e
 
 apply :: Any -> [Any] -> IO Any
@@ -162,3 +181,23 @@ evalQuote (EBool b)   = pure $ mkBool b
 evalQuote (EList xs)  = do
   vals <- mapM evalQuote xs
   pure $ foldr mkCons mkNil vals
+
+-- | Convert a runtime value back to a LispExpr for macro expansion.
+anyToExpr :: Any -> LispExpr
+anyToExpr v = case graspTypeOf v of
+  GTInt       -> EInt (fromIntegral (toInt v))
+  GTDouble    -> EDouble (toDouble v)
+  GTBoolTrue  -> EBool True
+  GTBoolFalse -> EBool False
+  GTSym       -> ESym (toSym v)
+  GTStr       -> EStr (toStr v)
+  GTNil       -> EList []
+  GTCons      -> EList (consToExprList v)
+  t           -> error $ "cannot use " <> showGraspType t <> " as code in macro expansion"
+
+-- | Walk a cons chain, converting each element to LispExpr.
+consToExprList :: Any -> [LispExpr]
+consToExprList v
+  | isNil v   = []
+  | isCons v  = anyToExpr (toCar v) : consToExprList (toCdr v)
+  | otherwise = error "improper list in macro expansion"

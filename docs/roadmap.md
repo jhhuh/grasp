@@ -2,7 +2,7 @@
 
 Grasp's MVP demonstrates that a dynamic Lisp can construct closures on GHC's heap and evaluate them through the STG machine. This page outlines where the project goes from here.
 
-## Current Status: Phase 3 Complete (Opt-in Laziness)
+## Current Status: Phase 5 Complete (Macro System)
 
 What works:
 - S-expression parser (integers, strings, booleans, symbols, lists, quoting)
@@ -20,7 +20,8 @@ What works:
 - **Auto-forcing** — lazy values are transparently forced at primitive, interop, and control flow boundaries
 - Legacy `haskell-call` backward compatibility
 - REPL with error recovery
-- 121 tests passing
+- **`defmacro`** — user-defined macros that receive unevaluated arguments as quoted data, return code for re-evaluation
+- 136 tests passing
 
 What the project proves: a dynamic Lisp can inhabit GHC's heap as a native tenant, call arbitrary Haskell functions, and create real GHC thunks with standard update semantics. Grasp integers ARE `I#` closures, lazy values ARE GHC THUNKs, and the RTS's own evaluation machinery forces them.
 
@@ -91,11 +92,11 @@ This would enable:
 
 Grasp threads would be real GHC threads, scheduled by the same scheduler that runs Haskell threads. They'd share the same heap and GC.
 
-## Phase 5: Macro System
+## Phase 5: Macro System ✓
 
-**Goal**: User-defined macros that transform S-expressions before evaluation.
+**Status**: Complete.
 
-A `defmacro` form that receives unevaluated arguments and returns a transformed expression:
+`(defmacro name (params) body)` defines user macros that receive unevaluated arguments as quoted runtime values. The macro body runs in the macro's closure environment, and the result is converted back to a `LispExpr` via `anyToExpr` and re-evaluated in the caller's environment.
 
 ```lisp
 (defmacro when (cond body)
@@ -105,7 +106,7 @@ A `defmacro` form that receives unevaluated arguments and returns a transformed 
 ; expands to: (if (> x 0) (print "positive") ())
 ```
 
-Since Grasp is a Lisp, macros operate on the same data structures as the rest of the language. Code is data.
+Macros compose naturally — a macro can expand into another macro call, which is expanded during eval. The `GraspMacro` ADT mirrors `GraspLambda` and uses the same info-pointer type discrimination.
 
 ## Phase 6: Module System
 
