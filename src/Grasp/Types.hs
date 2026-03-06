@@ -23,6 +23,7 @@ type GraspVal = Any
 data EnvData = EnvData
   { envBindings   :: Map.Map Text GraspVal
   , envHsRegistry :: HsFuncRegistry
+  , envGhcSession :: IORef (Maybe Any)  -- GhcState, cast via unsafeCoerce in DynLookup
   }
 
 type Env = IORef EnvData

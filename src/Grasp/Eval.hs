@@ -15,23 +15,26 @@ import Grasp.NativeTypes
 import Grasp.HsRegistry (dispatchRegistered)
 
 defaultEnv :: IO Env
-defaultEnv = newIORef $ EnvData
-  { envBindings = Map.fromList
-      [ ("+", mkPrim "+" (numBinOp (+)))
-      , ("-", mkPrim "-" (numBinOp (-)))
-      , ("*", mkPrim "*" (numBinOp (*)))
-      , ("div", mkPrim "div" (numBinOp div))
-      , ("=", mkPrim "=" eqOp)
-      , ("<", mkPrim "<" (cmpOp (<)))
-      , (">", mkPrim ">" (cmpOp (>)))
-      , ("list", mkPrim "list" listOp)
-      , ("cons", mkPrim "cons" consOp)
-      , ("car", mkPrim "car" carOp)
-      , ("cdr", mkPrim "cdr" cdrOp)
-      , ("null?", mkPrim "null?" nullOp)
-      ]
-  , envHsRegistry = Map.empty
-  }
+defaultEnv = do
+  ghcRef <- newIORef Nothing
+  newIORef $ EnvData
+    { envBindings = Map.fromList
+        [ ("+", mkPrim "+" (numBinOp (+)))
+        , ("-", mkPrim "-" (numBinOp (-)))
+        , ("*", mkPrim "*" (numBinOp (*)))
+        , ("div", mkPrim "div" (numBinOp div))
+        , ("=", mkPrim "=" eqOp)
+        , ("<", mkPrim "<" (cmpOp (<)))
+        , (">", mkPrim ">" (cmpOp (>)))
+        , ("list", mkPrim "list" listOp)
+        , ("cons", mkPrim "cons" consOp)
+        , ("car", mkPrim "car" carOp)
+        , ("cdr", mkPrim "cdr" cdrOp)
+        , ("null?", mkPrim "null?" nullOp)
+        ]
+    , envHsRegistry = Map.empty
+    , envGhcSession = ghcRef
+    }
 
 numBinOp :: (Int -> Int -> Int) -> [Any] -> IO Any
 numBinOp op [a, b] = pure $ mkInt (op (toInt a) (toInt b))
