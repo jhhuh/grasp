@@ -2,6 +2,8 @@
 module NativeTypesSpec (spec) where
 
 import Test.Hspec
+import Data.IORef
+import Grasp.Types (LispExpr(..))
 import Grasp.NativeTypes
 
 spec :: Spec
@@ -52,6 +54,11 @@ spec = describe "NativeTypes" $ do
       let lazy = mkLazy (mkInt 77)
       result <- forceIfLazy lazy
       toInt result `shouldBe` 77
+
+    it "identifies Macro" $ do
+      env <- newIORef undefined
+      let macro = mkMacro ["x"] (ESym "x") env
+      graspTypeOf macro `shouldBe` GTMacro
 
   describe "constructors and extractors" $ do
     it "round-trips Int" $
