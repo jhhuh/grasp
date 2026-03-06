@@ -178,3 +178,77 @@ spec = describe "Evaluator" $ do
 
     it "converts string" $
       anyToExpr (mkStr "hello") `shouldBe` EStr "hello"
+
+  describe "macros" $ do
+    it "defmacro creates a macro" $ do
+      env <- defaultEnv
+      case parseLisp "(defmacro my-id (x) x)" of
+        Right expr -> do
+          val <- eval env expr
+          printVal val `shouldBe` "<macro>"
+        Left err -> error (show err)
+
+    it "simple macro expansion" $ do
+      env <- defaultEnv
+      case parseLisp "(defmacro my-id (x) x)" of
+        Right defExpr -> do
+          _ <- eval env defExpr
+          case parseLisp "(my-id 42)" of
+            Right callExpr -> do
+              val <- eval env callExpr
+              printVal val `shouldBe` "42"
+            Left err -> error (show err)
+        Left err -> error (show err)
+
+    it "when macro" $ do
+      env <- defaultEnv
+      case parseLisp "(defmacro when (cond body) (list 'if cond body '()))" of
+        Right defExpr -> do
+          _ <- eval env defExpr
+          case parseLisp "(when #t 42)" of
+            Right callExpr -> do
+              val <- eval env callExpr
+              printVal val `shouldBe` "42"
+            Left err -> error (show err)
+        Left err -> error (show err)
+
+    it "when macro false branch returns nil" $ do
+      env <- defaultEnv
+      case parseLisp "(defmacro when (cond body) (list 'if cond body '()))" of
+        Right defExpr -> do
+          _ <- eval env defExpr
+          case parseLisp "(when #f 42)" of
+            Right callExpr -> do
+              val <- eval env callExpr
+              printVal val `shouldBe` "()"
+            Left err -> error (show err)
+        Left err -> error (show err)
+
+    it "macro with arithmetic in expansion" $ do
+      env <- defaultEnv
+      case parseLisp "(defmacro double (x) (list '+ x x))" of
+        Right defExpr -> do
+          _ <- eval env defExpr
+          case parseLisp "(double 5)" of
+            Right callExpr -> do
+              val <- eval env callExpr
+              printVal val `shouldBe` "10"
+            Left err -> error (show err)
+        Left err -> error (show err)
+
+    it "macro expands into macro call" $ do
+      env <- defaultEnv
+      mapM_ (\src -> case parseLisp src of
+        Right e -> eval env e >> pure ()
+        Left err -> error (show err))
+        [ "(defmacro my-id (x) x)"
+        , "(defmacro my-id2 (x) (list 'my-id x))"
+        ]
+      case parseLisp "(my-id2 42)" of
+        Right callExpr -> do
+          val <- eval env callExpr
+          printVal val `shouldBe` "42"
+        Left err -> error (show err)
+
+    it "macro prints as <macro>" $
+      run "(defmacro foo (x) x)" `shouldReturn` "<macro>"
