@@ -9,6 +9,7 @@ module Grasp.NativeTypes
   , GraspNil(..)
   , GraspLambda(..)
   , GraspPrim(..)
+  , GraspLazy(..)
   -- * Type discrimination
   , GraspType(..)
   , graspTypeOf
@@ -17,11 +18,13 @@ module Grasp.NativeTypes
   , mkSym, mkStr
   , mkCons, mkNil
   , mkLambda, mkPrim
+  , mkLazy
   -- * Extractors
   , toInt, toDouble, toBool
   , toSym, toStr
   , toCar, toCdr
   , toLambdaParts, toPrimFn, toPrimName
+  , forceLazy, forceIfLazy
   -- * Predicates
   , isNil, isCons
   -- * Equality
@@ -50,13 +53,14 @@ data GraspCons   = GraspCons Any Any
 data GraspNil    = GraspNil
 data GraspLambda = GraspLambda [Text] LispExpr Env
 data GraspPrim   = GraspPrim Text ([Any] -> IO Any)
+data GraspLazy   = GraspLazy Any  -- lazy field: holds a GHC THUNK
 
 -- ─── Type tags ────────────────────────────────────────────
 
 data GraspType
   = GTInt | GTDouble | GTBoolTrue | GTBoolFalse
   | GTSym | GTStr | GTCons | GTNil
-  | GTLambda | GTPrim
+  | GTLambda | GTPrim | GTLazy
   deriving (Eq, Show)
 
 showGraspType :: GraspType -> String
@@ -70,6 +74,7 @@ showGraspType GTCons      = "Cons"
 showGraspType GTNil       = "Nil"
 showGraspType GTLambda    = "Lambda"
 showGraspType GTPrim      = "Primitive"
+showGraspType GTLazy      = "Lazy"
 
 -- ─── Info pointer cache ───────────────────────────────────
 -- Each closure type has a unique info-table address.
@@ -124,6 +129,10 @@ lambdaInfoPtr = getInfoPtr (GraspLambda undefined undefined undefined)
 primInfoPtr :: Ptr ()
 primInfoPtr = getInfoPtr (GraspPrim undefined undefined)
 
+{-# NOINLINE lazyInfoPtr #-}
+lazyInfoPtr :: Ptr ()
+lazyInfoPtr = getInfoPtr (GraspLazy (unsafeCoerce ()))
+
 -- ─── Type discrimination ─────────────────────────────────
 
 graspTypeOf :: Any -> GraspType
@@ -138,6 +147,7 @@ graspTypeOf v = let p = getInfoPtr v in
   else if p == nilInfoPtr    then GTNil
   else if p == lambdaInfoPtr then GTLambda
   else if p == primInfoPtr   then GTPrim
+  else if p == lazyInfoPtr   then GTLazy
   else error $ "unknown closure type at " ++ show p
 
 -- ─── Constructors ─────────────────────────────────────────
@@ -168,6 +178,9 @@ mkLambda params body env = unsafeCoerce (GraspLambda params body env)
 
 mkPrim :: Text -> ([Any] -> IO Any) -> Any
 mkPrim name f = unsafeCoerce (GraspPrim name f)
+
+mkLazy :: Any -> Any
+mkLazy v = unsafeCoerce (GraspLazy v)
 
 -- ─── Extractors ───────────────────────────────────────────
 
@@ -200,6 +213,14 @@ toPrimFn v = let GraspPrim _ f = unsafeCoerce v in f
 
 toPrimName :: Any -> Text
 toPrimName v = let GraspPrim n _ = unsafeCoerce v in n
+
+forceLazy :: Any -> IO Any
+forceLazy v = let GraspLazy inner = unsafeCoerce v in inner `seq` pure inner
+
+forceIfLazy :: Any -> IO Any
+forceIfLazy v = case graspTypeOf v of
+  GTLazy -> forceLazy v
+  _      -> pure v
 
 -- ─── Predicates ───────────────────────────────────────────
 

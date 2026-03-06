@@ -31,6 +31,28 @@ spec = describe "NativeTypes" $ do
     it "identifies Nil" $
       graspTypeOf mkNil `shouldBe` GTNil
 
+    it "discriminates GraspLazy" $ do
+      let inner = mkInt 42
+      let lazy = mkLazy inner
+      graspTypeOf lazy `shouldBe` GTLazy
+
+    it "forceLazy returns inner value" $ do
+      let inner = mkInt 42
+      let lazy = mkLazy inner
+      result <- forceLazy lazy
+      graspTypeOf result `shouldBe` GTInt
+      toInt result `shouldBe` 42
+
+    it "forceIfLazy passes non-lazy through" $ do
+      let v = mkInt 99
+      result <- forceIfLazy v
+      toInt result `shouldBe` 99
+
+    it "forceIfLazy forces lazy values" $ do
+      let lazy = mkLazy (mkInt 77)
+      result <- forceIfLazy lazy
+      toInt result `shouldBe` 77
+
   describe "constructors and extractors" $ do
     it "round-trips Int" $
       toInt (mkInt 42) `shouldBe` 42
