@@ -233,6 +233,35 @@ Three dispatch paths exist:
 
 **Annotated (`hs@`):** The expression string includes a type annotation. The GHC API compiles it directly, using the annotated type for marshaling.
 
+## Macros
+
+### `defmacro`
+
+Defines a macro — a function that receives unevaluated arguments and returns code:
+
+```lisp
+(defmacro when (cond body)
+  (list 'if cond body '()))
+
+(when (> x 0) (print "positive"))
+; expands to: (if (> x 0) (print "positive") ())
+```
+
+Macro arguments are **not evaluated** before being passed to the macro body. Instead,
+they are quoted — converted to runtime data (cons cells, symbols, literals) that the
+macro body can inspect and rearrange using standard list operations (`list`, `cons`,
+`car`, `cdr`).
+
+The macro body returns a value (typically built with `list` and `quote`), which is
+then converted back to an expression and evaluated in the caller's environment.
+
+```lisp
+(defmacro double (x) (list '+ x x))
+(double (+ 1 2))  ; expands to (+ (+ 1 2) (+ 1 2)) => 6
+```
+
+A macro value prints as `<macro>`.
+
 ## Evaluation Model
 
 Grasp is **strict** (call-by-value). All arguments are evaluated before function application:
@@ -293,6 +322,7 @@ Every Grasp value is a `GraspVal` (alias for `Any` from `GHC.Exts`) — an untyp
 | `GraspLambda` | Lambda closure | `<lambda>` |
 | `GraspPrim` | Built-in function | `<primitive:+>` |
 | `GraspLazy` | Lazy thunk | `<lazy>` |
+| `GraspMacro` | Macro | `<macro>` |
 
 GHC-equivalent types (Int, Double, Bool) reuse GHC's own closures — a Grasp integer IS a Haskell `Int`, with zero marshaling overhead. Grasp-specific types use Haskell ADTs whose info tables GHC generates automatically.
 
