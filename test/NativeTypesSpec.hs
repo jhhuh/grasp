@@ -31,6 +31,28 @@ spec = describe "NativeTypes" $ do
     it "identifies Nil" $
       graspTypeOf mkNil `shouldBe` GTNil
 
+    it "discriminates GraspLazy" $ do
+      let inner = mkInt 42
+      let lazy = mkLazy inner
+      graspTypeOf lazy `shouldBe` GTLazy
+
+    it "forceLazy returns inner value" $ do
+      let inner = mkInt 42
+      let lazy = mkLazy inner
+      result <- forceLazy lazy
+      graspTypeOf result `shouldBe` GTInt
+      toInt result `shouldBe` 42
+
+    it "forceIfLazy passes non-lazy through" $ do
+      let v = mkInt 99
+      result <- forceIfLazy v
+      toInt result `shouldBe` 99
+
+    it "forceIfLazy forces lazy values" $ do
+      let lazy = mkLazy (mkInt 77)
+      result <- forceIfLazy lazy
+      toInt result `shouldBe` 77
+
   describe "constructors and extractors" $ do
     it "round-trips Int" $
       toInt (mkInt 42) `shouldBe` 42
@@ -67,25 +89,25 @@ spec = describe "NativeTypes" $ do
 
   describe "graspEq" $ do
     it "equal ints" $
-      graspEq (mkInt 42) (mkInt 42) `shouldBe` True
+      graspEq (mkInt 42) (mkInt 42) `shouldReturn` True
 
     it "unequal ints" $
-      graspEq (mkInt 1) (mkInt 2) `shouldBe` False
+      graspEq (mkInt 1) (mkInt 2) `shouldReturn` False
 
     it "equal bools" $
-      graspEq (mkBool True) (mkBool True) `shouldBe` True
+      graspEq (mkBool True) (mkBool True) `shouldReturn` True
 
     it "equal nil" $
-      graspEq mkNil mkNil `shouldBe` True
+      graspEq mkNil mkNil `shouldReturn` True
 
     it "equal cons" $
-      graspEq (mkCons (mkInt 1) mkNil) (mkCons (mkInt 1) mkNil) `shouldBe` True
+      graspEq (mkCons (mkInt 1) mkNil) (mkCons (mkInt 1) mkNil) `shouldReturn` True
 
     it "different types" $
-      graspEq (mkInt 1) (mkBool True) `shouldBe` False
+      graspEq (mkInt 1) (mkBool True) `shouldReturn` False
 
     it "equal strings" $
-      graspEq (mkStr "a") (mkStr "a") `shouldBe` True
+      graspEq (mkStr "a") (mkStr "a") `shouldReturn` True
 
     it "equal symbols" $
-      graspEq (mkSym "x") (mkSym "x") `shouldBe` True
+      graspEq (mkSym "x") (mkSym "x") `shouldReturn` True

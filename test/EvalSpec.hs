@@ -7,6 +7,7 @@ import Grasp.Types
 import Grasp.Eval
 import Grasp.Parser
 import Grasp.Printer
+import Grasp.NativeTypes (graspTypeOf, GraspType(..), forceIfLazy, toInt)
 
 -- Helper: parse + eval, return printed result
 run :: String -> IO String
@@ -89,3 +90,69 @@ spec = describe "Evaluator" $ do
 
     it "quotes a symbol" $
       run "'foo" `shouldReturn` "foo"
+
+  describe "lazy evaluation" $ do
+    it "lazy creates a lazy value" $
+      run "(force (lazy 42))" `shouldReturn` "42"
+
+    it "lazy defers computation" $
+      run "(force (lazy (+ 1 2)))" `shouldReturn` "3"
+
+    it "force on non-lazy is identity" $
+      run "(force 42)" `shouldReturn` "42"
+
+    it "lazy value prints as <lazy>" $
+      run "(lazy 42)" `shouldReturn` "<lazy>"
+
+    it "nested force works" $
+      run "(force (lazy (force (lazy 99))))" `shouldReturn` "99"
+
+    it "auto-forces in arithmetic" $
+      run "(+ (lazy 10) (lazy 20))" `shouldReturn` "30"
+
+    it "auto-forces in comparison" $
+      run "(< (lazy 1) (lazy 2))" `shouldReturn` "#t"
+
+    it "auto-forces in equality" $
+      run "(= (lazy 42) (lazy 42))" `shouldReturn` "#t"
+
+    it "auto-forces in car" $
+      run "(car (lazy (list 1 2 3)))" `shouldReturn` "1"
+
+    it "auto-forces in cdr" $
+      run "(cdr (lazy (list 1 2 3)))" `shouldReturn` "(2 3)"
+
+    it "auto-forces in null?" $
+      run "(null? (lazy '()))" `shouldReturn` "#t"
+
+    it "auto-forces in function application" $
+      run "((lazy (lambda (x) (+ x 1))) 5)" `shouldReturn` "6"
+
+    it "auto-forces in if condition" $
+      run "(if (lazy #f) 1 2)" `shouldReturn` "2"
+
+    it "equality forces lazy values in cons cells" $
+      run "(= (list (lazy 1) (lazy 2)) (list (lazy 1) (lazy 2)))" `shouldReturn` "#t"
+
+    it "lazy captures environment" $ do
+      env <- defaultEnv
+      case parseLisp "(define x 10)" of
+        Right defExpr -> do
+          _ <- eval env defExpr
+          case parseLisp "(force (lazy (+ x 5)))" of
+            Right expr -> do
+              val <- eval env expr
+              printVal val `shouldBe` "15"
+            Left err -> error (show err)
+        Left err -> error (show err)
+
+    it "memoizes after first force (thunk update)" $ do
+      env <- defaultEnv
+      case parseLisp "(lazy (+ 1 2))" of
+        Right expr -> do
+          lazyVal <- eval env expr
+          r1 <- forceIfLazy lazyVal
+          r2 <- forceIfLazy lazyVal
+          toInt r1 `shouldBe` 3
+          toInt r2 `shouldBe` 3
+        Left err -> error (show err)

@@ -86,6 +86,13 @@ spec = describe "Haskell Interop" $ do
     it "calls Data.List.nub with list marshaling" $
       run "(hs:Data.List.nub (list 1 2 1 3 2))" `shouldReturn` "(1 2 3)"
 
+  describe "lazy + interop" $ do
+    it "auto-forces lazy args in hs:" $
+      run "(hs:succ (lazy 41))" `shouldReturn` "42"
+
+    it "auto-forces lazy args in hs@ form" $
+      run "(hs@ \"(+) :: Int -> Int -> Int\" (lazy 10) (lazy 32))" `shouldReturn` "42"
+
   describe "hs@ annotated form" $ do
     it "calls sort with explicit type" $
       run "(hs@ \"Data.List.sort :: [Int] -> [Int]\" (list 3 1 2))" `shouldReturn` "(1 2 3)"

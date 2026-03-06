@@ -151,27 +151,28 @@ buildAnnotatedExpr name argTypes =
 dynDispatch :: IORef (Maybe Any) -> Text -> [Any] -> IO Any
 dynDispatch gsRef name args = do
   state <- getOrInitGhc gsRef
+  args' <- mapM forceIfLazy args
   typeResult <- lookupFunc state name
   case typeResult of
     Right info -> do
-      when (length args /= funcArity info) $
+      when (length args' /= funcArity info) $
         error $ T.unpack name <> ": expected " <> show (funcArity info)
-              <> " argument(s), got " <> show (length args)
-      marshaledArgs <- zipWithM marshalGraspToHaskell (funcArgs info) args
+              <> " argument(s), got " <> show (length args')
+      marshaledArgs <- zipWithM marshalGraspToHaskell (funcArgs info) args'
       result <- dynCallInferred state name marshaledArgs
       marshalHaskellToGrasp (funcReturn info) result
     Left _ -> do
       -- Polymorphic function — infer types from actual arguments
-      let inferredArgs = map inferArgType args
+      let inferredArgs = map inferArgType args'
           annotated = buildAnnotatedExpr name inferredArgs
       typeResult2 <- lookupFunc state annotated
       case typeResult2 of
         Left err2 -> error $ T.unpack name <> ": " <> err2
         Right info -> do
-          when (length args /= funcArity info) $
+          when (length args' /= funcArity info) $
             error $ T.unpack name <> ": expected " <> show (funcArity info)
-                  <> " argument(s), got " <> show (length args)
-          marshaledArgs <- zipWithM marshalGraspToHaskell (funcArgs info) args
+                  <> " argument(s), got " <> show (length args')
+          marshaledArgs <- zipWithM marshalGraspToHaskell (funcArgs info) args'
           result <- dynCall state annotated marshaledArgs
           marshalHaskellToGrasp (funcReturn info) result
 
@@ -179,13 +180,14 @@ dynDispatch gsRef name args = do
 dynDispatchAnnotated :: IORef (Maybe Any) -> Text -> [Any] -> IO Any
 dynDispatchAnnotated gsRef expr args = do
   state <- getOrInitGhc gsRef
+  args' <- mapM forceIfLazy args
   typeResult <- lookupFunc state expr
   case typeResult of
     Left err -> error $ "hs@: " <> err
     Right info -> do
-      when (length args /= funcArity info) $
+      when (length args' /= funcArity info) $
         error $ "hs@: expected " <> show (funcArity info)
-              <> " argument(s), got " <> show (length args)
-      marshaledArgs <- zipWithM marshalGraspToHaskell (funcArgs info) args
+              <> " argument(s), got " <> show (length args')
+      marshaledArgs <- zipWithM marshalGraspToHaskell (funcArgs info) args'
       result <- dynCall state expr marshaledArgs
       marshalHaskellToGrasp (funcReturn info) result
