@@ -10,7 +10,6 @@ import qualified Data.Text as T
 import qualified Data.Map.Strict as Map
 import GHC.Exts (Any)
 import System.IO.Unsafe (unsafeInterleaveIO)
-import Unsafe.Coerce (unsafeCoerce)
 
 import Grasp.Types
 import Grasp.NativeTypes
@@ -47,10 +46,7 @@ numBinOp op [a, b] = do
 numBinOp _ args = error $ "expected two integers, got: " <> show (length args) <> " args"
 
 eqOp :: [Any] -> IO Any
-eqOp [a, b] = do
-  a' <- forceIfLazy a
-  b' <- forceIfLazy b
-  pure $ mkBool (graspEq a' b')
+eqOp [a, b] = mkBool <$> graspEq a b
 eqOp _ = error "= expects two arguments"
 
 cmpOp :: (Int -> Int -> Bool) -> [Any] -> IO Any
@@ -100,7 +96,8 @@ eval env (ESym s)  = do
 eval _ (EList [ESym "quote", e]) = evalQuote e
 eval env (EList [ESym "if", cond, then_, else_]) = do
   c <- eval env cond
-  if graspTypeOf c == GTBoolFalse
+  c' <- forceIfLazy c
+  if graspTypeOf c' == GTBoolFalse
     then eval env else_
     else eval env then_
 eval env (EList [ESym "define", ESym name, body]) = do
@@ -115,7 +112,7 @@ eval env (EList (ESym "lambda" : EList params : body)) = do
 -- lazy: defer evaluation into a real GHC THUNK
 eval env (EList [ESym "lazy", body]) = do
   thunk <- unsafeInterleaveIO (eval env body)
-  pure (mkLazy (unsafeCoerce thunk))
+  pure (mkLazy thunk)
 -- force: enter a lazy thunk, triggering GHC's update mechanism
 eval env (EList [ESym "force", expr]) = do
   v <- eval env expr

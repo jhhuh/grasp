@@ -3,7 +3,6 @@ module EvalSpec (spec) where
 
 import Test.Hspec
 import qualified Data.Text as T
-import Data.IORef
 import Grasp.Types
 import Grasp.Eval
 import Grasp.Parser
@@ -128,6 +127,12 @@ spec = describe "Evaluator" $ do
 
     it "auto-forces in function application" $
       run "((lazy (lambda (x) (+ x 1))) 5)" `shouldReturn` "6"
+
+    it "auto-forces in if condition" $
+      run "(if (lazy #f) 1 2)" `shouldReturn` "2"
+
+    it "equality forces lazy values in cons cells" $
+      run "(= (list (lazy 1) (lazy 2)) (list (lazy 1) (lazy 2)))" `shouldReturn` "#t"
 
     it "lazy captures environment" $ do
       env <- defaultEnv

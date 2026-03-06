@@ -232,15 +232,18 @@ isCons v = graspTypeOf v == GTCons
 
 -- ─── Equality ─────────────────────────────────────────────
 
-graspEq :: Any -> Any -> Bool
-graspEq a b = case (graspTypeOf a, graspTypeOf b) of
-  (GTInt, GTInt)           -> toInt a == toInt b
-  (GTDouble, GTDouble)     -> toDouble a == toDouble b
-  (GTSym, GTSym)           -> toSym a == toSym b
-  (GTStr, GTStr)           -> toStr a == toStr b
-  (GTBoolTrue, GTBoolTrue) -> True
-  (GTBoolFalse, GTBoolFalse) -> True
-  (GTNil, GTNil)           -> True
-  (GTCons, GTCons)         -> graspEq (toCar a) (toCar b)
-                              && graspEq (toCdr a) (toCdr b)
-  _                        -> False
+graspEq :: Any -> Any -> IO Bool
+graspEq a b = do
+  a' <- forceIfLazy a
+  b' <- forceIfLazy b
+  case (graspTypeOf a', graspTypeOf b') of
+    (GTInt, GTInt)           -> pure $ toInt a' == toInt b'
+    (GTDouble, GTDouble)     -> pure $ toDouble a' == toDouble b'
+    (GTSym, GTSym)           -> pure $ toSym a' == toSym b'
+    (GTStr, GTStr)           -> pure $ toStr a' == toStr b'
+    (GTBoolTrue, GTBoolTrue) -> pure True
+    (GTBoolFalse, GTBoolFalse) -> pure True
+    (GTNil, GTNil)           -> pure True
+    (GTCons, GTCons)         -> (&&) <$> graspEq (toCar a') (toCar b')
+                                     <*> graspEq (toCdr a') (toCdr b')
+    _                        -> pure False

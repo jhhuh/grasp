@@ -89,25 +89,25 @@ spec = describe "NativeTypes" $ do
 
   describe "graspEq" $ do
     it "equal ints" $
-      graspEq (mkInt 42) (mkInt 42) `shouldBe` True
+      graspEq (mkInt 42) (mkInt 42) `shouldReturn` True
 
     it "unequal ints" $
-      graspEq (mkInt 1) (mkInt 2) `shouldBe` False
+      graspEq (mkInt 1) (mkInt 2) `shouldReturn` False
 
     it "equal bools" $
-      graspEq (mkBool True) (mkBool True) `shouldBe` True
+      graspEq (mkBool True) (mkBool True) `shouldReturn` True
 
     it "equal nil" $
-      graspEq mkNil mkNil `shouldBe` True
+      graspEq mkNil mkNil `shouldReturn` True
 
     it "equal cons" $
-      graspEq (mkCons (mkInt 1) mkNil) (mkCons (mkInt 1) mkNil) `shouldBe` True
+      graspEq (mkCons (mkInt 1) mkNil) (mkCons (mkInt 1) mkNil) `shouldReturn` True
 
     it "different types" $
-      graspEq (mkInt 1) (mkBool True) `shouldBe` False
+      graspEq (mkInt 1) (mkBool True) `shouldReturn` False
 
     it "equal strings" $
-      graspEq (mkStr "a") (mkStr "a") `shouldBe` True
+      graspEq (mkStr "a") (mkStr "a") `shouldReturn` True
 
     it "equal symbols" $
-      graspEq (mkSym "x") (mkSym "x") `shouldBe` True
+      graspEq (mkSym "x") (mkSym "x") `shouldReturn` True
