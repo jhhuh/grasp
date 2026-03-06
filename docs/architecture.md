@@ -45,7 +45,7 @@ Defines two parallel type hierarchies:
 
 - **`LispVal`** — the evaluator's output. Runtime values that include everything `LispExpr` has, plus cons cells (`LCons`/`LNil`), lambda closures (`LFun` with captured environment), and primitive functions (`LPrimitive` wrapping `[LispVal] -> IO LispVal`).
 
-- **`Env`** — `IORef (Map Text LispVal)`. A mutable reference to a symbol table. New bindings from `define` mutate the map in place. Lambda closures capture the `Env` reference.
+- **`EnvData`** — contains `envBindings :: Map Text LispVal` (symbol table) and `envHsRegistry :: HsFuncRegistry` (registered Haskell functions with type metadata). `Env = IORef EnvData`. New bindings from `define` mutate `envBindings` in place. Lambda closures capture the `Env` reference, inheriting access to the registry.
 
 The two-type design keeps parsing pure and separates syntax from semantics.
 
@@ -88,14 +88,16 @@ Converts `LispVal` to `String`. The interesting case is cons cells: `printCons` 
 
 ### `Grasp.RtsBridge` — FFI bindings
 
-Haskell-side FFI declarations for the C bridge functions:
+Haskell-side FFI declarations for the C bridge functions. Three FFI imports:
+
+- `c_roundtrip_int` — round-trip test (mkInt + getInt)
+- `c_apply_int_int` — **unsafe**: builds thunk and evaluates via `rts_eval` (aborts on exception)
+- `c_build_int_app` — **safe**: builds thunk via `rts_apply`, returns `StablePtr` without evaluating
+
+The safe evaluation wrapper `bridgeSafeApplyIntInt` builds the thunk in C, then forces it in Haskell with `try`/`evaluate`:
 
 ```haskell
-foreign import ccall safe "grasp_roundtrip_int"
-  c_roundtrip_int :: Int -> IO Int
-
-foreign import ccall safe "grasp_apply_int_int"
-  c_apply_int_int :: StablePtr (Int -> Int) -> Int -> IO Int
+bridgeSafeApplyIntInt :: StablePtr (Int -> Int) -> Int -> IO (Either String Int)
 ```
 
 Key design choices:
@@ -104,23 +106,26 @@ Key design choices:
 
 - **`Int` not `CInt`**: GHC's `HsInt` is `int64_t` on 64-bit platforms. Haskell's `Int` is the same size. `CInt` is `int32_t` — using it would silently truncate values.
 
-### `Grasp.HaskellInterop` — Haskell function dispatch
+- **Split build/eval**: `rts_eval` aborts the process on unhandled Haskell exceptions. By building the thunk in C and forcing it in Haskell, exceptions are caught safely via `try`.
 
-Extends the default environment with `haskell-call`, a primitive that dispatches by function name string. Two calling conventions:
+### `Grasp.HsRegistry` — Type-safe dispatch
+
+Validates arity and argument types before invoking a registered Haskell function. Each `HsFuncEntry` carries `[HsType]` arg types and a return type. On mismatch, produces clear errors like "succ: expected Int, got String".
+
+### `Grasp.HaskellInterop` — Haskell function registry
+
+Builds the `HsFuncRegistry` and extends the default environment with both `haskell-call` (legacy) and the `hs:` prefix dispatch (via the registry stored in `EnvData`).
 
 **RTS bridge path** (`succ`, `negate`):
-1. Create a `StablePtr` to the Haskell function
-2. Call `bridgeApplyIntInt` which goes through C
-3. C calls `rts_apply` + `rts_eval` (full STG evaluation)
-4. Free the `StablePtr`
-5. Return the result
+1. `StablePtr` created once at registry construction
+2. Each call: `grasp_build_int_app` builds thunk in C via `rts_apply`
+3. Thunk forced safely in Haskell via `try`/`evaluate`
+4. Exception → error message; success → `LInt` result
 
 **Haskell marshaling path** (`reverse`, `length`):
 1. Marshal Grasp cons list to `[Int]`
 2. Call the Haskell function directly
 3. Marshal the result back to Grasp values
-
-The marshaling path is simpler but doesn't exercise the RTS C API. Both paths are provided to demonstrate the two approaches.
 
 ## The C Bridge
 
@@ -148,7 +153,7 @@ Creates an application thunk: `fn arg`. Does not evaluate — just builds the cl
 
 Forces an expression to weak head normal form (WHNF) by entering GHC's scheduler. The STG machine evaluates the closure: enters thunks, applies functions, updates indirections. This is the same evaluation mechanism GHC uses for compiled Haskell code.
 
-**Warning**: If the Haskell function throws an exception during evaluation, `rts_eval` calls `barf()` and aborts the process. Production use should wrap evaluation with `rts_evalIO` and an exception-catching IO action.
+**Warning**: If the Haskell function throws an exception during evaluation, `rts_eval` calls `barf()` and aborts the process. Grasp avoids this by using `grasp_build_int_app` (thunk construction only) + Haskell-side `try`/`evaluate` for safe forcing.
 
 **Warning**: `rts_eval` must not be called from code already executing under `rts_lock()` on the same thread — that would deadlock, since the thread already holds the capability.
 
@@ -160,39 +165,43 @@ Extracts the `Int` value from a boxed `Int` closure. Assumes the closure is alre
 
 Dereferences a `StablePtr` to get the underlying `HaskellObj`. StablePtrs are GC roots — they prevent the garbage collector from moving or collecting the pointed-to closure, giving C code a stable handle.
 
-## Data Flow: `(haskell-call "succ" 41)`
+## Data Flow: `(hs:succ 41)`
 
 Here is the complete path a Haskell interop call takes:
 
 ```
-1. Parser:   "(haskell-call \"succ\" 41)"
-             → EList [ESym "haskell-call", EStr "succ", EInt 41]
+1. Parser:   "(hs:succ 41)"
+             → EList [ESym "hs:succ", EInt 41]
 
-2. Eval:     eval dispatches to haskell-call primitive
-             → haskellCall [LStr "succ", LInt 41]
+2. Eval:     eval sees "hs:" prefix, strips it → "succ"
+             → looks up registry in EnvData
+             → validates: [LInt 41] matches [HsInt]
+             → calls hfInvoke [LInt 41]
 
-3. Interop:  dispatchHaskellCall "succ" (LInt 41)
-             → newStablePtr (succ :: Int -> Int)
-             → bridgeApplyIntInt sp 41
+3. Registry: bridgeSafeApplyIntInt sp 41
+             (StablePtr created once at registry construction)
 
-4. FFI:      foreign import ccall safe "grasp_apply_int_int"
+4. FFI:      foreign import ccall safe "grasp_build_int_app"
              → Haskell releases capability, enters C
 
 5. C bridge: Capability *cap = rts_lock();
              HaskellObj fn = deRefStablePtr(fn_sp);   // get succ closure
              HaskellObj arg = rts_mkInt(cap, 41);      // box 41 on GHC heap
              HaskellObj app = rts_apply(cap, fn, arg); // build: succ 41
-             rts_eval(&cap, app, &result);             // STG machine evaluates
-             HsInt ret = rts_getInt(result);           // extract 42
+             StablePtr result_sp = getStablePtr(app);  // anchor thunk
              rts_unlock(cap);
-             return 42;
+             return result_sp;                         // no eval in C!
 
-6. Back:     bridgeApplyIntInt returns 42
-             → LInt 42
+6. Haskell:  thunk <- deRefStablePtr result_sp
+             result <- try (evaluate thunk)            // safe forcing
+             freeStablePtr result_sp
+             → Right 42
+
+7. Back:     → LInt 42
              → printVal → "42"
 ```
 
-Steps 5 is where Grasp's values live on GHC's heap. The `41` is a real `StgClosure` on the GHC heap. The application `succ 41` is a real thunk. `rts_eval` enters the same scheduler that runs compiled Haskell programs.
+Step 5 is where Grasp's values live on GHC's heap. The `41` is a real `StgClosure`. The application `succ 41` is a real thunk. Step 6 forces it safely in Haskell — if the function throws, `try` catches the exception instead of aborting the process.
 
 ## Build System
 

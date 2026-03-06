@@ -2,17 +2,21 @@
 
 Grasp's MVP demonstrates that a dynamic Lisp can construct closures on GHC's heap and evaluate them through the STG machine. This page outlines where the project goes from here.
 
-## Current Status: MVP
+## Current Status: MVP + Safe Interop
 
 What works:
 - S-expression parser (integers, strings, booleans, symbols, lists, quoting)
 - Tree-walking evaluator (define, lambda, if, quote, closures)
 - 12 built-in primitives (arithmetic, comparison, list operations)
-- C bridge to GHC RTS (`rts_apply`, `rts_eval`, `rts_mkInt`, `rts_getInt`)
-- `haskell-call` for invoking Haskell functions (`succ`, `negate`, `reverse`, `length`)
+- C bridge to GHC RTS (`rts_apply`, `rts_mkInt`, `rts_getInt`)
+- **`hs:` syntax** for calling Haskell functions: `(hs:succ 41)` → `42`
+- **Type-safe function registry** with arity and type validation at the Grasp-Haskell boundary
+- **Safe evaluation** — Haskell exceptions are caught, not process-aborting
+- Legacy `haskell-call` backward compatibility
 - REPL with error recovery
+- 48 tests passing
 
-What the MVP proves: you can use the RTS C API to construct values on GHC's heap, apply Haskell functions to them, evaluate the result through GHC's scheduler, and extract the answer — all from a dynamic language with no compilation step.
+What the MVP proves: you can use the RTS C API to construct values on GHC's heap, apply Haskell functions to them, evaluate the result safely, and extract the answer — all from a dynamic language with no compilation step.
 
 ## Phase 1: Native STG Closures
 
@@ -34,7 +38,7 @@ This is the critical step toward "native tenant" status. Once Grasp values are r
 
 **Goal**: Call any Haskell function by name at runtime.
 
-Currently, `haskell-call` dispatches on a hardcoded set of function names. Phase 2 would look up Haskell functions dynamically using GHC's linker API:
+Currently, `hs:` dispatches through a static registry of known functions. Phase 2 would look up Haskell functions dynamically using GHC's linker API:
 
 ```c
 #include "Rts.h"
@@ -48,7 +52,7 @@ Combined with GHC's symbol naming conventions (Z-encoding), this would let Grasp
 
 This would enable:
 ```lisp
-(haskell-call "Data.List.sort" (list 3 1 2))  ; => (1 2 3)
+(hs:Data.List.sort (list 3 1 2))  ; => (1 2 3)
 ```
 
 ## Phase 3: Opt-in Laziness

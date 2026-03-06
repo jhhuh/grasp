@@ -168,22 +168,43 @@ Improper lists (where cdr is not a list) print with dot notation:
 
 ## Haskell Interop
 
-The `haskell-call` primitive calls compiled Haskell functions:
+Grasp can call compiled Haskell functions using the `hs:` prefix syntax:
 
 ```lisp
-(haskell-call "succ" 41)              ; => 42
-(haskell-call "negate" 5)             ; => -5
-(haskell-call "reverse" (list 1 2 3)) ; => (3 2 1)
-(haskell-call "length" (list 1 2 3))  ; => 3
+(hs:succ 41)              ; => 42
+(hs:negate 5)             ; => -5
+(hs:reverse (list 1 2 3)) ; => (3 2 1)
+(hs:length (list 1 2 3))  ; => 3
 ```
+
+The legacy `haskell-call` form is also supported:
+
+```lisp
+(haskell-call "succ" 41)  ; => 42
+```
+
+### Type validation
+
+Each registered Haskell function has type metadata. Grasp validates argument types before calling:
+
+```
+λ> (hs:succ "hello")
+error: succ: expected Int, got String
+λ> (hs:reverse 42)
+error: reverse: expected List[Int], got Int
+```
+
+### Safe evaluation
+
+Haskell functions that throw exceptions do not crash the process. The RTS bridge builds thunks in C (via `rts_apply`) but forces them in Haskell using `try`/`evaluate`, catching exceptions safely.
 
 ### How it works
 
-Functions are dispatched by name. Two calling conventions are currently supported:
+Functions are dispatched through a typed registry (`HsFuncRegistry`). Two calling conventions are supported:
 
-**RTS bridge (Int -> Int functions):** `succ` and `negate` go through the C bridge. The evaluator creates a `StablePtr` to the Haskell function, passes it to C code that calls `rts_apply` to build a thunk and `rts_eval` to force it through GHC's scheduler. The result is extracted with `rts_getInt`. This exercises the full STG evaluation pipeline.
+**RTS bridge (Int -> Int functions):** `succ` and `negate` go through the C bridge. A `StablePtr` is created once at registry construction. Each call uses `grasp_build_int_app` in C to build a thunk via `rts_apply`, then forces it safely in Haskell.
 
-**Haskell-side marshaling (list functions):** `reverse` and `length` marshal Grasp cons lists to Haskell `[Int]`, call the Haskell function directly, and marshal back. This is simpler but doesn't go through the RTS C API.
+**Haskell-side marshaling (list functions):** `reverse` and `length` marshal Grasp cons lists to Haskell `[Int]`, call the function directly, and marshal back.
 
 ### Supported functions
 
@@ -191,8 +212,8 @@ Functions are dispatched by name. Two calling conventions are currently supporte
 |----------|-------|--------|--------------------|
 | `succ` | Int | Int | RTS bridge |
 | `negate` | Int | Int | RTS bridge |
-| `reverse` | List of Int | List of Int | Haskell marshaling |
-| `length` | List of Int | Int | Haskell marshaling |
+| `reverse` | List[Int] | List[Int] | Haskell marshaling |
+| `length` | List[Int] | Int | Haskell marshaling |
 
 ## Evaluation Model
 
@@ -206,7 +227,7 @@ This is the default for most Lisps and is the simplest model to start with. Opt-
 
 ### Environments
 
-Environments are mutable maps from symbols to values, stored as `IORef (Map Text LispVal)`. Each lambda creates a child environment that inherits from its closure's environment:
+Environments are mutable `IORef EnvData` values carrying both a symbol table (`Map Text LispVal`) and a Haskell function registry (`HsFuncRegistry`). Each lambda creates a child environment that inherits from its closure's environment:
 
 ```lisp
 (define x 10)
