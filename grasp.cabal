@@ -17,6 +17,7 @@ executable grasp
     Grasp.HaskellInterop
     Grasp.NativeTypes
     Grasp.DynLookup
+    Grasp.DynDispatch
   c-sources:      cbits/rts_bridge.c
   include-dirs:   cbits
   build-depends:
@@ -48,6 +49,7 @@ test-suite grasp-test
     Grasp.HaskellInterop
     Grasp.NativeTypes
     Grasp.DynLookup
+    Grasp.DynDispatch
     ParserSpec
     EvalSpec
     RtsBridgeSpec
