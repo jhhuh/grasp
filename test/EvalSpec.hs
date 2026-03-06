@@ -3,10 +3,12 @@ module EvalSpec (spec) where
 
 import Test.Hspec
 import qualified Data.Text as T
+import Data.IORef
 import Grasp.Types
 import Grasp.Eval
 import Grasp.Parser
 import Grasp.Printer
+import Grasp.NativeTypes (graspTypeOf, GraspType(..))
 
 -- Helper: parse + eval, return printed result
 run :: String -> IO String
@@ -89,3 +91,31 @@ spec = describe "Evaluator" $ do
 
     it "quotes a symbol" $
       run "'foo" `shouldReturn` "foo"
+
+  describe "lazy evaluation" $ do
+    it "lazy creates a lazy value" $
+      run "(force (lazy 42))" `shouldReturn` "42"
+
+    it "lazy defers computation" $
+      run "(force (lazy (+ 1 2)))" `shouldReturn` "3"
+
+    it "force on non-lazy is identity" $
+      run "(force 42)" `shouldReturn` "42"
+
+    it "lazy value prints as <lazy>" $
+      run "(lazy 42)" `shouldReturn` "<lazy>"
+
+    it "nested force works" $
+      run "(force (lazy (force (lazy 99))))" `shouldReturn` "99"
+
+    it "lazy captures environment" $ do
+      env <- defaultEnv
+      case parseLisp "(define x 10)" of
+        Right defExpr -> do
+          _ <- eval env defExpr
+          case parseLisp "(force (lazy (+ x 5)))" of
+            Right expr -> do
+              val <- eval env expr
+              printVal val `shouldBe` "15"
+            Left err -> error (show err)
+        Left err -> error (show err)

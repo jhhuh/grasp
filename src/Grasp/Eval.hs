@@ -9,6 +9,8 @@ import Data.IORef
 import qualified Data.Text as T
 import qualified Data.Map.Strict as Map
 import GHC.Exts (Any)
+import System.IO.Unsafe (unsafeInterleaveIO)
+import Unsafe.Coerce (unsafeCoerce)
 
 import Grasp.Types
 import Grasp.NativeTypes
@@ -93,6 +95,14 @@ eval env (EList (ESym "lambda" : EList params : body)) = do
   case body of
     [expr] -> pure $ mkLambda paramNames expr env
     _      -> error "lambda body must be a single expression"
+-- lazy: defer evaluation into a real GHC THUNK
+eval env (EList [ESym "lazy", body]) = do
+  thunk <- unsafeInterleaveIO (eval env body)
+  pure (mkLazy (unsafeCoerce thunk))
+-- force: enter a lazy thunk, triggering GHC's update mechanism
+eval env (EList [ESym "force", expr]) = do
+  v <- eval env expr
+  forceIfLazy v
 -- hs@ annotated form: (hs@ "expr :: Type" args...)
 eval env (EList (ESym "hs@" : exprArg : funcArgs)) = do
   exprVal <- eval env exprArg
