@@ -148,11 +148,16 @@ eval env (EList (fn : args)) = do
     GTMacro -> do
       quotedArgs <- mapM evalQuote args
       let (params, body, closure) = toMacroParts f'
-      let bindings = Map.fromList (zip params quotedArgs)
-      parentEd <- readIORef closure
-      childEnv <- newIORef $ parentEd { envBindings = Map.union bindings (envBindings parentEd) }
-      expansion <- eval childEnv body
-      eval env (anyToExpr expansion)
+      let np = length params
+          na = length quotedArgs
+      if np /= na
+        then error $ "macro expects " <> show np <> " args, got " <> show na
+        else do
+          let bindings = Map.fromList (zip params quotedArgs)
+          parentEd <- readIORef closure
+          childEnv <- newIORef $ parentEd { envBindings = Map.union bindings (envBindings parentEd) }
+          expansion <- eval childEnv body
+          eval env (anyToExpr expansion)
     _ -> do
       vals <- mapM (eval env) args
       apply f' vals
@@ -166,10 +171,15 @@ apply v args = do
     GTPrim -> toPrimFn v' args
     GTLambda -> do
       let (params, body, closure) = toLambdaParts v'
-      let bindings = Map.fromList (zip params args)
-      parentEd <- readIORef closure
-      childEnv <- newIORef $ parentEd { envBindings = Map.union bindings (envBindings parentEd) }
-      eval childEnv body
+      let np = length params
+          na = length args
+      if np /= na
+        then error $ "lambda expects " <> show np <> " args, got " <> show na
+        else do
+          let bindings = Map.fromList (zip params args)
+          parentEd <- readIORef closure
+          childEnv <- newIORef $ parentEd { envBindings = Map.union bindings (envBindings parentEd) }
+          eval childEnv body
     t -> error $ "not a function: " <> showGraspType t
 
 evalQuote :: LispExpr -> IO GraspVal

@@ -3,6 +3,8 @@ module EvalSpec (spec) where
 
 import Test.Hspec
 import qualified Data.Text as T
+import Control.Exception (evaluate, try, SomeException)
+import Data.List (isInfixOf)
 import Grasp.Types
 import Grasp.Eval (eval, defaultEnv, anyToExpr)
 import Grasp.Parser
@@ -252,3 +254,42 @@ spec = describe "Evaluator" $ do
 
     it "macro prints as <macro>" $
       run "(defmacro foo (x) x)" `shouldReturn` "<macro>"
+
+  describe "arity errors" $ do
+    it "lambda rejects too few args" $ do
+      result <- try (evaluate =<< run "((lambda (x y) (+ x y)) 1)") :: IO (Either SomeException String)
+      case result of
+        Left e -> show e `shouldSatisfy` isInfixOf "expects 2 args, got 1"
+        Right _ -> expectationFailure "should have thrown"
+
+    it "lambda rejects too many args" $ do
+      result <- try (evaluate =<< run "((lambda (x) x) 1 2 3)") :: IO (Either SomeException String)
+      case result of
+        Left e -> show e `shouldSatisfy` isInfixOf "expects 1 args, got 3"
+        Right _ -> expectationFailure "should have thrown"
+
+    it "macro rejects too few args" $ do
+      env <- defaultEnv
+      case parseLisp "(defmacro m (a b) (list '+ a b))" of
+        Right e -> eval env e >> pure ()
+        Left err -> error (show err)
+      result <- try (evaluate =<< do
+        case parseLisp "(m 1)" of
+          Right e -> printVal <$> eval env e
+          Left err -> error (show err)) :: IO (Either SomeException String)
+      case result of
+        Left e -> show e `shouldSatisfy` isInfixOf "expects 2 args, got 1"
+        Right _ -> expectationFailure "should have thrown"
+
+    it "macro rejects too many args" $ do
+      env <- defaultEnv
+      case parseLisp "(defmacro m (a) a)" of
+        Right e -> eval env e >> pure ()
+        Left err -> error (show err)
+      result <- try (evaluate =<< do
+        case parseLisp "(m 1 2 3)" of
+          Right e -> printVal <$> eval env e
+          Left err -> error (show err)) :: IO (Either SomeException String)
+      case result of
+        Left e -> show e `shouldSatisfy` isInfixOf "expects 1 args, got 3"
+        Right _ -> expectationFailure "should have thrown"
