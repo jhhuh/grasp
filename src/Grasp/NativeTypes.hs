@@ -13,6 +13,7 @@ module Grasp.NativeTypes
   , GraspMacro(..)
   , GraspChan(..)
   , GraspModule(..)
+  , GraspRecur(..)
   -- * Type discrimination
   , GraspType(..)
   , graspTypeOf
@@ -25,6 +26,7 @@ module Grasp.NativeTypes
   , mkMacro
   , mkChan
   , mkModule
+  , mkRecur
   -- * Extractors
   , toInt, toDouble, toBool
   , toSym, toStr
@@ -35,6 +37,7 @@ module Grasp.NativeTypes
   , toChan
   , toModuleName
   , toModuleExports
+  , toRecurArgs
   -- * Predicates
   , isNil, isCons
   -- * Equality
@@ -69,13 +72,14 @@ data GraspLazy   = GraspLazy Any  -- lazy field: holds a GHC THUNK
 data GraspMacro  = GraspMacro [Text] LispExpr Env
 data GraspChan   = GraspChan (Chan Any)
 data GraspModule = GraspModule Text (Map.Map Text Any)
+data GraspRecur = GraspRecur [Any]
 
 -- ─── Type tags ────────────────────────────────────────────
 
 data GraspType
   = GTInt | GTDouble | GTBoolTrue | GTBoolFalse
   | GTSym | GTStr | GTCons | GTNil
-  | GTLambda | GTPrim | GTLazy | GTMacro | GTChan | GTModule
+  | GTLambda | GTPrim | GTLazy | GTMacro | GTChan | GTModule | GTRecur
   deriving (Eq, Show)
 
 showGraspType :: GraspType -> String
@@ -93,6 +97,7 @@ showGraspType GTLazy      = "Lazy"
 showGraspType GTMacro     = "Macro"
 showGraspType GTChan      = "Chan"
 showGraspType GTModule    = "Module"
+showGraspType GTRecur     = "Recur"
 
 -- ─── Info pointer cache ───────────────────────────────────
 -- Each closure type has a unique info-table address.
@@ -163,6 +168,10 @@ chanInfoPtr = getInfoPtr (GraspChan undefined)
 moduleInfoPtr :: Ptr ()
 moduleInfoPtr = getInfoPtr (GraspModule undefined undefined)
 
+{-# NOINLINE recurInfoPtr #-}
+recurInfoPtr :: Ptr ()
+recurInfoPtr = getInfoPtr (GraspRecur [])
+
 -- ─── Type discrimination ─────────────────────────────────
 
 graspTypeOf :: Any -> GraspType
@@ -181,6 +190,7 @@ graspTypeOf v = let p = getInfoPtr v in
   else if p == macroInfoPtr  then GTMacro
   else if p == chanInfoPtr   then GTChan
   else if p == moduleInfoPtr then GTModule
+  else if p == recurInfoPtr then GTRecur
   else error $ "unknown closure type at " ++ show p
 
 -- ─── Constructors ─────────────────────────────────────────
@@ -223,6 +233,9 @@ mkChan ch = unsafeCoerce (GraspChan ch)
 
 mkModule :: Text -> Map.Map Text Any -> Any
 mkModule name exports = unsafeCoerce (GraspModule name exports)
+
+mkRecur :: [Any] -> Any
+mkRecur args = unsafeCoerce (GraspRecur args)
 
 -- ─── Extractors ───────────────────────────────────────────
 
@@ -267,6 +280,9 @@ toModuleName v = let GraspModule n _ = unsafeCoerce v in n
 
 toModuleExports :: Any -> Map.Map Text Any
 toModuleExports v = let GraspModule _ e = unsafeCoerce v in e
+
+toRecurArgs :: Any -> [Any]
+toRecurArgs v = let GraspRecur args = unsafeCoerce v in args
 
 forceLazy :: Any -> IO Any
 forceLazy v = let GraspLazy inner = unsafeCoerce v in inner `seq` pure inner

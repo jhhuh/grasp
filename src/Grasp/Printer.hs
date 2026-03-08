@@ -19,6 +19,7 @@ printVal v = case graspTypeOf v of
   GTMacro     -> "<macro>"
   GTChan      -> "<chan>"
   GTModule    -> "<module:" <> T.unpack (toModuleName v) <> ">"
+  GTRecur     -> error "recur used outside of loop"
   GTCons      -> "(" <> printCons (toCar v) (toCdr v) <> ")"
 
 printCons :: Any -> Any -> String

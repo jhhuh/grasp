@@ -69,6 +69,9 @@ spec = describe "NativeTypes" $ do
     it "identifies Module" $
       graspTypeOf (mkModule "test" Map.empty) `shouldBe` GTModule
 
+    it "discriminates GraspRecur" $
+      graspTypeOf (mkRecur [mkInt 1, mkInt 2]) `shouldBe` GTRecur
+
   describe "constructors and extractors" $ do
     it "round-trips Int" $
       toInt (mkInt 42) `shouldBe` 42
