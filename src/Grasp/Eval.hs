@@ -4,6 +4,7 @@ module Grasp.Eval
   ( eval
   , defaultEnv
   , anyToExpr
+  , apply
   ) where
 
 import Data.IORef
@@ -11,6 +12,10 @@ import qualified Data.Text as T
 import qualified Data.Map.Strict as Map
 import GHC.Exts (Any)
 import System.IO.Unsafe (unsafeInterleaveIO)
+import Control.Concurrent (forkIO)
+import Control.Concurrent.Chan (newChan, writeChan, readChan)
+import Control.Exception (SomeException, catch)
+import Control.Monad (void)
 
 import Grasp.Types
 import Grasp.NativeTypes
@@ -34,6 +39,10 @@ defaultEnv = do
         , ("car", mkPrim "car" carOp)
         , ("cdr", mkPrim "cdr" cdrOp)
         , ("null?", mkPrim "null?" nullOp)
+        , ("spawn", mkPrim "spawn" spawnOp)
+        , ("make-chan", mkPrim "make-chan" makeChanOp)
+        , ("chan-put", mkPrim "chan-put" chanPutOp)
+        , ("chan-get", mkPrim "chan-get" chanGetOp)
         ]
     , envHsRegistry = Map.empty
     , envGhcSession = ghcRef
@@ -83,6 +92,29 @@ nullOp [v] = do
   v' <- forceIfLazy v
   pure $ mkBool (isNil v')
 nullOp _ = error "null? expects one argument"
+
+spawnOp :: [Any] -> IO Any
+spawnOp [f] = do
+  _ <- forkIO $ void (apply f []) `catch` \(_ :: SomeException) -> pure ()
+  pure mkNil
+spawnOp _ = error "spawn expects one argument (a zero-arg function)"
+
+makeChanOp :: [Any] -> IO Any
+makeChanOp [] = mkChan <$> newChan
+makeChanOp _ = error "make-chan expects no arguments"
+
+chanPutOp :: [Any] -> IO Any
+chanPutOp [ch, val] = do
+  ch' <- forceIfLazy ch
+  writeChan (toChan ch') val
+  pure mkNil
+chanPutOp _ = error "chan-put expects two arguments (channel, value)"
+
+chanGetOp :: [Any] -> IO Any
+chanGetOp [ch] = do
+  ch' <- forceIfLazy ch
+  readChan (toChan ch')
+chanGetOp _ = error "chan-get expects one argument (channel)"
 
 eval :: Env -> LispExpr -> IO GraspVal
 eval _ (EInt n)    = pure $ mkInt (fromInteger n)

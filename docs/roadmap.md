@@ -2,7 +2,7 @@
 
 Grasp's MVP demonstrates that a dynamic Lisp can construct closures on GHC's heap and evaluate them through the STG machine. This page outlines where the project goes from here.
 
-## Current Status: Phase 5 Complete (Macro System)
+## Current Status: Phase 4 Complete (Concurrency)
 
 What works:
 - S-expression parser (integers, strings, booleans, symbols, lists, quoting)
@@ -21,7 +21,8 @@ What works:
 - Legacy `haskell-call` backward compatibility
 - REPL with error recovery
 - **`defmacro`** — user-defined macros that receive unevaluated arguments as quoted data, return code for re-evaluation
-- 136 tests passing
+- **`spawn`** — green threads via `forkIO`, channels via `Chan` for inter-thread communication
+- 147 tests passing
 
 What the project proves: a dynamic Lisp can inhabit GHC's heap as a native tenant, call arbitrary Haskell functions, and create real GHC thunks with standard update semantics. Grasp integers ARE `I#` closures, lazy values ARE GHC THUNKs, and the RTS's own evaluation machinery forces them.
 
@@ -73,24 +74,19 @@ Any Haskell function can be called by name at runtime via the GHC API:
 
 The `GraspLazy` ADT wrapper provides type discrimination via the info-pointer cache. Lazy values are transparent at all boundaries — primitives, `if`, `=`, and Haskell interop auto-force before operating.
 
-## Phase 4: Concurrency
+## Phase 4: Concurrency ✓
 
-**Goal**: Grasp programs can use GHC's green threads and STM.
+**Status**: Complete.
 
-GHC's RTS provides lightweight threads (created with `forkIO`) and software transactional memory (STM). The RTS C API exposes:
+`(spawn fn)` forks a green thread via `forkIO`. Channels (`make-chan`, `chan-put`, `chan-get`) provide blocking inter-thread communication. Spawned threads are real GHC green threads scheduled by the same scheduler that runs Haskell threads. They share the same heap and GC.
 
-```c
-void rts_evalLazyIO(Capability** cap, HaskellObj p, HaskellObj* ret);
-```
-
-This would enable:
 ```lisp
-(spawn (lambda () (do-work)))     ; creates a green thread
-(with-stm (lambda ()
-  (read-tvar x)))                  ; STM transaction
+(define ch (make-chan))
+(spawn (lambda () (chan-put ch (* 6 7))))
+(chan-get ch)  ; => 42
 ```
 
-Grasp threads would be real GHC threads, scheduled by the same scheduler that runs Haskell threads. They'd share the same heap and GC.
+Threads are fire-and-forget — exceptions are silently caught. STM/TVar support is deferred to future work.
 
 ## Phase 5: Macro System ✓
 

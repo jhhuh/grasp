@@ -3,6 +3,7 @@ module NativeTypesSpec (spec) where
 
 import Test.Hspec
 import Data.IORef
+import Control.Concurrent.Chan (newChan)
 import Grasp.Types (LispExpr(..))
 import Grasp.NativeTypes
 
@@ -59,6 +60,10 @@ spec = describe "NativeTypes" $ do
       env <- newIORef undefined
       let macro = mkMacro ["x"] (ESym "x") env
       graspTypeOf macro `shouldBe` GTMacro
+
+    it "identifies Chan" $ do
+      ch <- newChan
+      graspTypeOf (mkChan ch) `shouldBe` GTChan
 
   describe "constructors and extractors" $ do
     it "round-trips Int" $

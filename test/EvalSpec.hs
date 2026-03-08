@@ -3,6 +3,7 @@ module EvalSpec (spec) where
 
 import Test.Hspec
 import qualified Data.Text as T
+import Control.Concurrent (threadDelay)
 import Control.Exception (evaluate, try, SomeException)
 import Data.List (isInfixOf)
 import Grasp.Types
@@ -293,3 +294,70 @@ spec = describe "Evaluator" $ do
       case result of
         Left e -> show e `shouldSatisfy` isInfixOf "expects 1 args, got 3"
         Right _ -> expectationFailure "should have thrown"
+
+  describe "concurrency" $ do
+    it "make-chan creates a channel" $
+      run "(make-chan)" `shouldReturn` "<chan>"
+
+    it "chan-put and chan-get round-trip" $ do
+      env <- defaultEnv
+      mapM_ (\src -> case parseLisp src of
+        Right e -> eval env e >> pure ()
+        Left err -> error (show err))
+        [ "(define ch (make-chan))"
+        , "(chan-put ch 42)"
+        ]
+      case parseLisp "(chan-get ch)" of
+        Right expr -> do
+          val <- eval env expr
+          printVal val `shouldBe` "42"
+        Left err -> error (show err)
+
+    it "chan-get blocks until value available" $ do
+      env <- defaultEnv
+      mapM_ (\src -> case parseLisp src of
+        Right e -> eval env e >> pure ()
+        Left err -> error (show err))
+        [ "(define ch (make-chan))"
+        , "(spawn (lambda () (chan-put ch 99)))"
+        ]
+      threadDelay 10000
+      case parseLisp "(chan-get ch)" of
+        Right expr -> do
+          val <- eval env expr
+          printVal val `shouldBe` "99"
+        Left err -> error (show err)
+
+    it "spawn runs a function in a new thread" $ do
+      env <- defaultEnv
+      mapM_ (\src -> case parseLisp src of
+        Right e -> eval env e >> pure ()
+        Left err -> error (show err))
+        [ "(define ch (make-chan))"
+        , "(spawn (lambda () (chan-put ch (+ 6 7))))"
+        ]
+      threadDelay 10000
+      case parseLisp "(chan-get ch)" of
+        Right expr -> do
+          val <- eval env expr
+          printVal val `shouldBe` "13"
+        Left err -> error (show err)
+
+    it "spawn returns nil" $
+      run "(spawn (lambda () 42))" `shouldReturn` "()"
+
+    it "multiple spawned threads communicate via channel" $ do
+      env <- defaultEnv
+      mapM_ (\src -> case parseLisp src of
+        Right e -> eval env e >> pure ()
+        Left err -> error (show err))
+        [ "(define ch (make-chan))"
+        , "(spawn (lambda () (chan-put ch 1)))"
+        , "(spawn (lambda () (chan-put ch 2)))"
+        ]
+      threadDelay 10000
+      case parseLisp "(+ (chan-get ch) (chan-get ch))" of
+        Right expr -> do
+          val <- eval env expr
+          printVal val `shouldBe` "3"
+        Left err -> error (show err)

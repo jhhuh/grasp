@@ -51,7 +51,7 @@ The two-type design keeps parsing pure and separates syntax from semantics.
 
 ### `Grasp.NativeTypes` — Value representation and type discrimination
 
-Defines the Grasp-specific ADTs (`GraspSym`, `GraspStr`, `GraspCons`, `GraspNil`, `GraspLambda`, `GraspPrim`, `GraspLazy`, `GraspMacro`) whose info tables GHC generates automatically. Provides:
+Defines the Grasp-specific ADTs (`GraspSym`, `GraspStr`, `GraspCons`, `GraspNil`, `GraspLambda`, `GraspPrim`, `GraspLazy`, `GraspMacro`, `GraspChan`) whose info tables GHC generates automatically. Provides:
 
 - **Type discrimination** — `graspTypeOf :: Any -> GraspType` reads the info-table address from a closure header via `unpackClosure#` and compares against cached reference addresses. Zero FFI overhead.
 - **Constructors** — `mkInt`, `mkBool`, `mkCons`, `mkLambda`, etc. wrap Haskell values as `Any` via `unsafeCoerce`.
@@ -88,6 +88,8 @@ A tree-walking interpreter. `eval :: Env -> LispExpr -> IO GraspVal` pattern-mat
 - **`(force expr)`** — enters the lazy thunk via `forceIfLazy`; identity on non-lazy values
 - **`(defmacro name (params) body)`** — creates a `GraspMacro` and binds it in the environment
 - **`(f args...)`** — evaluates `f`; if macro, quotes args, runs body, converts result via `anyToExpr`, re-evals in caller's env; otherwise evaluates args and calls `apply`
+
+Concurrency primitives (`spawn`, `make-chan`, `chan-put`, `chan-get`) are registered in `defaultEnv` alongside arithmetic and list operations. `spawn` uses `forkIO` to create real GHC green threads. `apply` is exported so `spawn` can invoke it from the primitive.
 
 `apply` dispatches on `graspTypeOf v` (auto-forces lazy functions):
 - `GTPrim` — extracts the function via `toPrimFn` and calls it
