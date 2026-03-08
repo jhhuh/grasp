@@ -474,7 +474,6 @@ eval env (EList (fn : args)) = do
       vals <- mapM (eval env) args
       apply f' vals
 eval _ (EList []) = pure mkNil
-eval _ e = error $ "cannot eval: " <> show e
 
 apply :: Any -> [Any] -> IO Any
 apply v args = do
