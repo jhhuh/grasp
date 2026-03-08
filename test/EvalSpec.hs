@@ -736,3 +736,31 @@ spec = describe "Evaluator" $ do
 
     it "catches Haskell errors" $
       run "(with-handler (lambda (c r) \"caught\") (car 42))" `shouldReturn` "\"caught\""
+
+  describe "debugging primitives" $ do
+    it "type-of int" $
+      run "(type-of 42)" `shouldReturn` "\"Int\""
+
+    it "type-of string" $
+      run "(type-of \"hello\")" `shouldReturn` "\"String\""
+
+    it "type-of lambda" $
+      run "(type-of (lambda (x) x))" `shouldReturn` "\"Lambda\""
+
+    it "type-of list" $
+      run "(type-of (list 1 2))" `shouldReturn` "\"Cons\""
+
+    it "type-of nil" $
+      run "(type-of (list))" `shouldReturn` "\"Nil\""
+
+    it "type-of bool" $
+      run "(type-of #t)" `shouldReturn` "\"Bool\""
+
+    it "inspect returns a list" $ do
+      result <- run "(type-of (inspect 42))"
+      result `shouldBe` "\"Cons\""
+
+    it "gc-stats returns a list" $ do
+      result <- run "(type-of (gc-stats))"
+      -- gc-stats returns either a cons (stats) or cons (error message)
+      result `shouldBe` "\"Cons\""

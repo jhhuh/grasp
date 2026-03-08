@@ -1,4 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Grasp.Eval
   ( eval
@@ -10,12 +12,14 @@ module Grasp.Eval
 import Data.IORef
 import qualified Data.Text as T
 import qualified Data.Map.Strict as Map
-import GHC.Exts (Any)
+import GHC.Exts (Any, unpackClosure#, sizeofArray#, sizeofByteArray#)
+import GHC.Types (Int(I#))
 import System.IO.Unsafe (unsafeInterleaveIO)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (newChan, writeChan, readChan)
 import Control.Exception (SomeException, catch, displayException)
 import Control.Monad (void)
+import qualified GHC.Stats as Stats
 
 import qualified Data.Text.IO as TIO
 import System.Directory (doesFileExist)
@@ -49,6 +53,9 @@ defaultEnv = do
         , ("chan-put", mkPrim "chan-put" chanPutOp)
         , ("chan-get", mkPrim "chan-get" chanGetOp)
         , ("apply", mkPrim "apply" applyOp)
+        , ("type-of", mkPrim "type-of" typeOfOp)
+        , ("inspect", mkPrim "inspect" inspectOp)
+        , ("gc-stats", mkPrim "gc-stats" gcStatsOp)
         ]
     , envHsRegistry = Map.empty
     , envGhcSession = ghcRef
@@ -138,6 +145,41 @@ applyOp [f, argList] = do
   args <- graspListToList argList
   apply f args
 applyOp _ = error "apply expects two arguments (function, arg-list)"
+
+typeOfOp :: [Any] -> IO Any
+typeOfOp [v] = do
+  v' <- forceIfLazy v
+  pure $ mkStr (T.pack (showGraspType (graspTypeOf v')))
+typeOfOp _ = error "type-of expects one argument"
+
+inspectOp :: [Any] -> IO Any
+inspectOp [v] = do
+  v' <- forceIfLazy v
+  let typeName = mkStr (T.pack (showGraspType (graspTypeOf v')))
+  case unpackClosure# v' of
+    (# _info, nptrs, ptrs #) ->
+      let np = I# (sizeofArray# ptrs)
+          nnp = I# (sizeofByteArray# nptrs) `div` 8
+      in pure $ foldr mkCons mkNil
+          [ mkSym "type", typeName
+          , mkSym "pointers", mkInt np
+          , mkSym "non-pointers", mkInt nnp
+          ]
+inspectOp _ = error "inspect expects one argument"
+
+gcStatsOp :: [Any] -> IO Any
+gcStatsOp [] = do
+  enabled <- Stats.getRTSStatsEnabled
+  if not enabled
+    then pure $ foldr mkCons mkNil [mkSym "error", mkStr "RTS stats not enabled (use +RTS -T)"]
+    else do
+      stats <- Stats.getRTSStats
+      pure $ foldr mkCons mkNil
+        [ mkSym "collections", mkInt (fromIntegral (Stats.gcs stats))
+        , mkSym "bytes-allocated", mkInt (fromIntegral (Stats.allocated_bytes stats))
+        , mkSym "max-live-bytes", mkInt (fromIntegral (Stats.max_live_bytes stats))
+        ]
+gcStatsOp _ = error "gc-stats expects no arguments"
 
 -- | Try to match a runtime value against a pattern expression.
 -- Returns Just bindings on match, Nothing on no match.
