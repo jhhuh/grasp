@@ -14,7 +14,7 @@ import GHC.Exts (Any)
 import System.IO.Unsafe (unsafeInterleaveIO)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (newChan, writeChan, readChan)
-import Control.Exception (SomeException, catch)
+import Control.Exception (SomeException, catch, displayException)
 import Control.Monad (void)
 
 import qualified Data.Text.IO as TIO
@@ -25,6 +25,7 @@ import Grasp.NativeTypes
 import Grasp.HsRegistry (dispatchRegistered)
 import Grasp.DynDispatch (dynDispatch, dynDispatchAnnotated)
 import Grasp.Parser (parseFile)
+import Grasp.Continuations (newPromptTag, prompt, control0, pushHandler, popHandler, peekHandler)
 
 defaultEnv :: IO Env
 defaultEnv = do
@@ -326,6 +327,38 @@ eval env (EList (ESym name : args))
       case Map.lookup hsName (envHsRegistry ed) of
         Just _  -> dispatchRegistered (envHsRegistry ed) hsName vals
         Nothing -> dynDispatch (envGhcSession ed) hsName vals
+-- with-handler: establish a condition handler with delimited continuation
+eval env (EList [ESym "with-handler", handlerExpr, body]) = do
+  handler <- eval env handlerExpr
+  tag <- newPromptTag
+  pushHandler tag handler
+  result <- (do
+    r <- prompt tag (eval env body)
+    popHandler
+    pure r)
+    `catch` \(e :: SomeException) -> do
+      popHandler
+      let errStr = mkStr (T.pack (displayException e))
+      let noRestart = mkPrim "<no-restart>" (\_ -> error "cannot restart from a Haskell exception")
+      apply handler [errStr, noRestart]
+  pure result
+-- signal: raise a condition to the nearest handler
+eval env (EList [ESym "signal", valExpr]) = do
+  val <- eval env valExpr
+  mh <- peekHandler
+  case mh of
+    Nothing -> error "signal: no handler installed"
+    Just (tag, handler) -> do
+      control0 tag $ \k -> do
+        popHandler
+        let restart = mkPrim "<restart>" (\case
+              [v] -> do
+                pushHandler tag handler
+                r <- k v
+                popHandler
+                pure r
+              _ -> error "restart expects one argument")
+        apply handler [val, restart]
 eval env (EList (fn : args)) = do
   f <- eval env fn
   f' <- forceIfLazy f

@@ -683,3 +683,22 @@ spec = describe "Evaluator" $ do
 
     it "range" $
       runPrelude ["(range 0 5)"] `shouldReturn` "(0 1 2 3 4)"
+
+  describe "condition system" $ do
+    it "with-handler returns body value on no signal" $
+      run "(with-handler (lambda (c r) c) 42)" `shouldReturn` "42"
+
+    it "signal invokes handler" $
+      run "(with-handler (lambda (c r) (+ c 100)) (signal 1))" `shouldReturn` "101"
+
+    it "handler can restart" $
+      run "(with-handler (lambda (c r) (r 0)) (+ 1 (signal 99)))" `shouldReturn` "1"
+
+    it "nested handlers" $
+      run "(with-handler (lambda (c r) (+ c 1000)) (with-handler (lambda (c r) (r (+ c 10))) (+ 1 (signal 5))))" `shouldReturn` "16"
+
+    it "handler without restart abandons body" $
+      run "(+ 1 (with-handler (lambda (c r) 99) (+ (signal 1) 1000)))" `shouldReturn` "100"
+
+    it "catches Haskell errors" $
+      run "(with-handler (lambda (c r) \"caught\") (car 42))" `shouldReturn` "\"caught\""
