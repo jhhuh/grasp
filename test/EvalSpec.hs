@@ -5,12 +5,13 @@ import Test.Hspec
 import qualified Data.Text as T
 import Control.Concurrent (threadDelay)
 import Control.Exception (evaluate, try, SomeException)
-import Data.List (isInfixOf)
+import Data.List (isInfixOf, isPrefixOf)
+import qualified Data.Map.Strict as Map
 import Grasp.Types
 import Grasp.Eval (eval, defaultEnv, anyToExpr)
 import Grasp.Parser (parseLisp, parseFile)
 import Grasp.Printer
-import Grasp.NativeTypes (graspTypeOf, GraspType(..), forceIfLazy, toInt, mkInt, mkSym, mkCons, mkNil, mkBool, mkStr)
+import Grasp.NativeTypes (graspTypeOf, GraspType(..), forceIfLazy, toInt, mkInt, mkSym, mkCons, mkNil, mkBool, mkStr, toModuleExports)
 
 -- Helper: parse + eval, return printed result
 run :: String -> IO String
@@ -361,6 +362,49 @@ spec = describe "Evaluator" $ do
           val <- eval env expr
           printVal val `shouldBe` "3"
         Left err -> error (show err)
+
+  describe "modules" $ do
+    it "module creates a module value" $ do
+      env <- defaultEnv
+      case parseLisp "(module mymod (export x) (define x 42))" of
+        Right expr -> do
+          val <- eval env expr
+          printVal val `shouldSatisfy` isPrefixOf "<module:"
+        Left err -> error (show err)
+
+    it "module exports only listed bindings" $ do
+      env <- defaultEnv
+      case parseLisp "(module mymod (export x) (define x 42) (define y 99))" of
+        Right expr -> do
+          val <- eval env expr
+          let exports = toModuleExports val
+          Map.member "x" exports `shouldBe` True
+          Map.member "y" exports `shouldBe` False
+        Left err -> error (show err)
+
+    it "module body can use internal bindings" $ do
+      env <- defaultEnv
+      case parseLisp "(module mymod (export result) (define helper (lambda (x) (+ x 1))) (define result (helper 41)))" of
+        Right expr -> do
+          val <- eval env expr
+          let exports = toModuleExports val
+          case Map.lookup "result" exports of
+            Just v -> printVal v `shouldBe` "42"
+            Nothing -> expectationFailure "result not exported"
+        Left err -> error (show err)
+
+    it "module errors on undefined export" $ do
+      env <- defaultEnv
+      result <- try (evaluate =<< do
+        case parseLisp "(module mymod (export missing) (define x 1))" of
+          Right e -> printVal <$> eval env e
+          Left err -> error (show err)) :: IO (Either SomeException String)
+      case result of
+        Left e -> show e `shouldSatisfy` isInfixOf "exported symbol"
+        Right _ -> expectationFailure "should have thrown"
+
+    it "module prints as <module:name>" $
+      run "(module foo (export) )" `shouldReturn` "<module:foo>"
 
   describe "parseFile" $ do
     it "parses multiple expressions" $ do

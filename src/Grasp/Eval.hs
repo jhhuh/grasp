@@ -150,6 +150,27 @@ eval env (EList [ESym "defmacro", ESym name, EList params, body]) = do
   let macro = mkMacro paramNames body env
   modifyIORef' env $ \ed -> ed { envBindings = Map.insert name macro (envBindings ed) }
   pure macro
+-- module: define a module with exports
+eval env (EList (ESym "module" : ESym name : EList (ESym "export" : exports) : body)) = do
+  let exportNames = map (\case ESym s -> s; _ -> error "export list must contain symbols") exports
+  -- Create child env inheriting parent's bindings (primitives, etc.)
+  parentEd <- readIORef env
+  childEnv <- newIORef parentEd
+  -- Evaluate body forms sequentially in child env
+  mapM_ (eval childEnv) body
+  -- Collect exports (validate all exports exist eagerly)
+  childEd <- readIORef childEnv
+  exportPairs <- mapM (\s -> case Map.lookup s (envBindings childEd) of
+        Just val -> pure (s, val)
+        Nothing  -> error $ "module " <> T.unpack name
+                         <> ": exported symbol '" <> T.unpack s
+                         <> "' is not defined"
+    ) exportNames
+  let exportMap = Map.fromList exportPairs
+  let modVal = mkModule name exportMap
+  -- Store module in parent's envModules
+  modifyIORef' env $ \ed -> ed { envModules = Map.insert name modVal (envModules ed) }
+  pure modVal
 -- lazy: defer evaluation into a real GHC THUNK
 eval env (EList [ESym "lazy", body]) = do
   thunk <- unsafeInterleaveIO (eval env body)
