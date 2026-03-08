@@ -247,6 +247,22 @@ eval env (EList [ESym "lazy", body]) = do
 eval env (EList [ESym "force", expr]) = do
   v <- eval env expr
   forceIfLazy v
+-- begin: evaluate forms sequentially, return last
+eval env (EList (ESym "begin" : exprs)) = case exprs of
+  [] -> pure mkNil
+  _  -> last <$> mapM (eval env) exprs
+-- let: sequential bindings with body
+eval env (EList (ESym "let" : EList bindings : body)) = do
+  parentEd <- readIORef env
+  childEnv <- newIORef parentEd
+  mapM_ (\case
+    EList [ESym name, valExpr] -> do
+      val <- eval childEnv valExpr
+      modifyIORef' childEnv $ \ed -> ed { envBindings = Map.insert name val (envBindings ed) }
+    _ -> error "let binding must be (name value)") bindings
+  case body of
+    [] -> pure mkNil
+    _  -> last <$> mapM (eval childEnv) body
 -- hs@ annotated form: (hs@ "expr :: Type" args...)
 eval env (EList (ESym "hs@" : exprArg : funcArgs)) = do
   exprVal <- eval env exprArg

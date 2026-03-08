@@ -98,6 +98,24 @@ spec = describe "Evaluator" $ do
     it "quotes a symbol" $
       run "'foo" `shouldReturn` "foo"
 
+  describe "begin" $ do
+    it "returns last expression" $
+      run "(begin 1 2 3)" `shouldReturn` "3"
+
+    it "returns nil for empty begin" $
+      run "(begin)" `shouldReturn` "()"
+
+    it "evaluates side effects" $ do
+      env <- defaultEnv
+      case parseLisp "(begin (define x 10) (+ x 5))" of
+        Right expr -> do
+          val <- eval env expr
+          printVal val `shouldBe` "15"
+        Left err -> error (show err)
+
+    it "single expression" $
+      run "(begin 42)" `shouldReturn` "42"
+
   describe "lazy evaluation" $ do
     it "lazy creates a lazy value" $
       run "(force (lazy 42))" `shouldReturn` "42"
