@@ -31,6 +31,7 @@ nav:
   - Language Reference: language.md
   - Architecture: architecture.md
   - The STG Machine: stg-machine.md
+  - Delimited Continuations: delimited-continuations.md
   - Related Work: related-work.md
   - Roadmap: roadmap.md
 

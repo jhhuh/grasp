@@ -28,5 +28,6 @@ Grasp reaches into this machinery and builds a Lisp on top of it.
 | [Language Reference](language.md) | The Lisp dialect: syntax, special forms, primitives |
 | [Architecture](architecture.md) | How Grasp works: parser, evaluator, C bridge, RTS integration |
 | [The STG Machine](stg-machine.md) | The runtime substrate: closures, info tables, evaluation, GC |
+| [Delimited Continuations](delimited-continuations.md) | Theory, GHC RTS implementation, and Grasp's condition system |
 | [Related Work](related-work.md) | How Grasp compares to Clojure, GHCi, Husk Scheme, etc. |
 | [Roadmap](roadmap.md) | Project history and future directions |
