@@ -116,6 +116,33 @@ spec = describe "Evaluator" $ do
     it "single expression" $
       run "(begin 42)" `shouldReturn` "42"
 
+  describe "let" $ do
+    it "binds and evaluates body" $
+      run "(let ((x 1) (y 2)) (+ x y))" `shouldReturn` "3"
+
+    it "sequential bindings reference earlier ones" $
+      run "(let ((x 10) (y (+ x 5))) y)" `shouldReturn` "15"
+
+    it "body has begin semantics" $
+      run "(let ((x 1)) (define y 2) (+ x y))" `shouldReturn` "3"
+
+    it "does not leak bindings to outer scope" $ do
+      env <- defaultEnv
+      case parseLisp "(let ((x 99)) x)" of
+        Right expr -> do
+          _ <- eval env expr
+          result <- try (evaluate =<< do
+            case parseLisp "x" of
+              Right e -> printVal <$> eval env e
+              Left err -> error (show err)) :: IO (Either SomeException String)
+          case result of
+            Left e -> show e `shouldSatisfy` isInfixOf "unbound symbol"
+            Right _ -> expectationFailure "x should not be visible outside let"
+        Left err -> error (show err)
+
+    it "empty body returns nil" $
+      run "(let ((x 1)))" `shouldReturn` "()"
+
   describe "lazy evaluation" $ do
     it "lazy creates a lazy value" $
       run "(force (lazy 42))" `shouldReturn` "42"
