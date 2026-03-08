@@ -155,8 +155,9 @@ eval env (EList [ESym "define", ESym name, body]) = do
 eval env (EList (ESym "lambda" : EList params : body)) = do
   let paramNames = map (\case ESym s -> s; _ -> error "lambda params must be symbols") params
   case body of
+    []     -> error "lambda must have at least one body expression"
     [expr] -> pure $ mkLambda paramNames expr env
-    _      -> error "lambda body must be a single expression"
+    _      -> pure $ mkLambda paramNames (EList (ESym "begin" : body)) env
 -- defmacro: define a macro
 eval env (EList [ESym "defmacro", ESym name, EList params, body]) = do
   let paramNames = map (\case ESym s -> s; _ -> error "macro params must be symbols") params
@@ -263,6 +264,35 @@ eval env (EList (ESym "let" : EList bindings : body)) = do
   case body of
     [] -> pure mkNil
     _  -> last <$> mapM (eval childEnv) body
+-- recur: return sentinel value for loop restart
+eval env (EList (ESym "recur" : args)) = do
+  vals <- mapM (eval env) args
+  pure $ mkRecur vals
+-- loop: iterative construct with recur
+eval env (EList (ESym "loop" : EList bindings : body)) = do
+  parentEd <- readIORef env
+  childEnv <- newIORef parentEd
+  varNames <- mapM (\case
+    EList [ESym name, initExpr] -> do
+      val <- eval childEnv initExpr
+      modifyIORef' childEnv $ \ed -> ed { envBindings = Map.insert name val (envBindings ed) }
+      pure name
+    _ -> error "loop binding must be (name init)") bindings
+  let go = do
+        result <- case body of
+          [] -> pure mkNil
+          _  -> last <$> mapM (eval childEnv) body
+        if graspTypeOf result == GTRecur
+          then do
+            let newVals = toRecurArgs result
+            if length newVals /= length varNames
+              then error $ "recur: expected " <> show (length varNames) <> " args, got " <> show (length newVals)
+              else do
+                mapM_ (\(name, val) -> modifyIORef' childEnv $ \ed ->
+                  ed { envBindings = Map.insert name val (envBindings ed) }) (zip varNames newVals)
+                go
+          else pure result
+  go
 -- hs@ annotated form: (hs@ "expr :: Type" args...)
 eval env (EList (ESym "hs@" : exprArg : funcArgs)) = do
   exprVal <- eval env exprArg

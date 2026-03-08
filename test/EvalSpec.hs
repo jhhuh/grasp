@@ -71,6 +71,21 @@ spec = describe "Evaluator" $ do
     it "applies a lambda with two args" $
       run "((lambda (x y) (+ x y)) 3 4)" `shouldReturn` "7"
 
+    it "multi-body lambda returns last" $
+      run "((lambda (x) 1 2 (+ x 3)) 10)" `shouldReturn` "13"
+
+    it "multi-body lambda with define" $ do
+      env <- defaultEnv
+      case parseLisp "(define f (lambda (x) (define y (+ x 1)) (+ x y)))" of
+        Right expr -> do
+          _ <- eval env expr
+          case parseLisp "(f 10)" of
+            Right e -> do
+              val <- eval env e
+              printVal val `shouldBe` "21"
+            Left err -> error (show err)
+        Left err -> error (show err)
+
   describe "conditionals" $ do
     it "evaluates if true branch" $
       run "(if #t 1 2)" `shouldReturn` "1"
@@ -142,6 +157,39 @@ spec = describe "Evaluator" $ do
 
     it "empty body returns nil" $
       run "(let ((x 1)))" `shouldReturn` "()"
+
+  describe "loop/recur" $ do
+    it "sum 0..99" $
+      run "(loop ((i 0) (sum 0)) (if (= i 100) sum (recur (+ i 1) (+ sum i))))"
+        `shouldReturn` "4950"
+
+    it "factorial" $ do
+      env <- defaultEnv
+      case parseLisp "(define fact (lambda (n) (loop ((i n) (acc 1)) (if (= i 0) acc (recur (- i 1) (* acc i))))))" of
+        Right expr -> do
+          _ <- eval env expr
+          case parseLisp "(fact 10)" of
+            Right e -> do
+              val <- eval env e
+              printVal val `shouldBe` "3628800"
+            Left err -> error (show err)
+        Left err -> error (show err)
+
+    it "loop without recur returns body value" $
+      run "(loop ((x 42)) x)" `shouldReturn` "42"
+
+    it "loop with sequential init bindings" $
+      run "(loop ((x 10) (y (+ x 5))) y)" `shouldReturn` "15"
+
+    it "recur arity mismatch errors" $ do
+      result <- try (evaluate =<< run "(loop ((x 0)) (recur 1 2))") :: IO (Either SomeException String)
+      case result of
+        Left e -> show e `shouldSatisfy` isInfixOf "recur: expected 1"
+        Right _ -> expectationFailure "should have thrown"
+
+    it "loop with multi-body" $
+      run "(loop ((i 0) (sum 0)) (define next (+ i 1)) (if (= i 10) sum (recur next (+ sum i))))"
+        `shouldReturn` "45"
 
   describe "lazy evaluation" $ do
     it "lazy creates a lazy value" $
