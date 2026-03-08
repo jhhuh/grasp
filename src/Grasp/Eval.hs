@@ -46,6 +46,8 @@ defaultEnv = do
         ]
     , envHsRegistry = Map.empty
     , envGhcSession = ghcRef
+    , envModules = Map.empty
+    , envLoading = []
     }
 
 numBinOp :: (Int -> Int -> Int) -> [Any] -> IO Any
