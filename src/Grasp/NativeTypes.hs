@@ -14,6 +14,7 @@ module Grasp.NativeTypes
   , GraspChan(..)
   , GraspModule(..)
   , GraspRecur(..)
+  , GraspPromptTag(..)
   -- * Type discrimination
   , GraspType(..)
   , graspTypeOf
@@ -27,6 +28,7 @@ module Grasp.NativeTypes
   , mkChan
   , mkModule
   , mkRecur
+  , mkPromptTag
   -- * Extractors
   , toInt, toDouble, toBool
   , toSym, toStr
@@ -38,6 +40,7 @@ module Grasp.NativeTypes
   , toModuleName
   , toModuleExports
   , toRecurArgs
+  , toPromptTag
   -- * Predicates
   , isNil, isCons
   -- * Equality
@@ -73,13 +76,14 @@ data GraspMacro  = GraspMacro [Text] LispExpr Env
 data GraspChan   = GraspChan (Chan Any)
 data GraspModule = GraspModule Text (Map.Map Text Any)
 data GraspRecur = GraspRecur [Any]
+data GraspPromptTag = GraspPromptTag Any  -- boxes the unlifted PromptTag#
 
 -- ─── Type tags ────────────────────────────────────────────
 
 data GraspType
   = GTInt | GTDouble | GTBoolTrue | GTBoolFalse
   | GTSym | GTStr | GTCons | GTNil
-  | GTLambda | GTPrim | GTLazy | GTMacro | GTChan | GTModule | GTRecur
+  | GTLambda | GTPrim | GTLazy | GTMacro | GTChan | GTModule | GTRecur | GTPromptTag
   deriving (Eq, Show)
 
 showGraspType :: GraspType -> String
@@ -98,6 +102,7 @@ showGraspType GTMacro     = "Macro"
 showGraspType GTChan      = "Chan"
 showGraspType GTModule    = "Module"
 showGraspType GTRecur     = "Recur"
+showGraspType GTPromptTag = "PromptTag"
 
 -- ─── Info pointer cache ───────────────────────────────────
 -- Each closure type has a unique info-table address.
@@ -172,6 +177,10 @@ moduleInfoPtr = getInfoPtr (GraspModule undefined undefined)
 recurInfoPtr :: Ptr ()
 recurInfoPtr = getInfoPtr (GraspRecur [])
 
+{-# NOINLINE promptTagInfoPtr #-}
+promptTagInfoPtr :: Ptr ()
+promptTagInfoPtr = getInfoPtr (GraspPromptTag (unsafeCoerce ()))
+
 -- ─── Type discrimination ─────────────────────────────────
 
 graspTypeOf :: Any -> GraspType
@@ -191,6 +200,7 @@ graspTypeOf v = let p = getInfoPtr v in
   else if p == chanInfoPtr   then GTChan
   else if p == moduleInfoPtr then GTModule
   else if p == recurInfoPtr then GTRecur
+  else if p == promptTagInfoPtr then GTPromptTag
   else error $ "unknown closure type at " ++ show p
 
 -- ─── Constructors ─────────────────────────────────────────
@@ -236,6 +246,9 @@ mkModule name exports = unsafeCoerce (GraspModule name exports)
 
 mkRecur :: [Any] -> Any
 mkRecur args = unsafeCoerce (GraspRecur args)
+
+mkPromptTag :: Any -> Any
+mkPromptTag t = unsafeCoerce (GraspPromptTag t)
 
 -- ─── Extractors ───────────────────────────────────────────
 
@@ -283,6 +296,9 @@ toModuleExports v = let GraspModule _ e = unsafeCoerce v in e
 
 toRecurArgs :: Any -> [Any]
 toRecurArgs v = let GraspRecur args = unsafeCoerce v in args
+
+toPromptTag :: Any -> Any
+toPromptTag v = let GraspPromptTag t = unsafeCoerce v in t
 
 forceLazy :: Any -> IO Any
 forceLazy v = let GraspLazy inner = unsafeCoerce v in inner `seq` pure inner

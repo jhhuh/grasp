@@ -18,6 +18,7 @@ executable grasp
     Grasp.NativeTypes
     Grasp.DynLookup
     Grasp.DynDispatch
+    Grasp.Continuations
   c-sources:      cbits/rts_bridge.c
   include-dirs:   cbits
   build-depends:
@@ -51,6 +52,7 @@ test-suite grasp-test
     Grasp.NativeTypes
     Grasp.DynLookup
     Grasp.DynDispatch
+    Grasp.Continuations
     ParserSpec
     EvalSpec
     RtsBridgeSpec
