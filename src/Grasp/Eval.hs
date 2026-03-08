@@ -17,10 +17,14 @@ import Control.Concurrent.Chan (newChan, writeChan, readChan)
 import Control.Exception (SomeException, catch)
 import Control.Monad (void)
 
+import qualified Data.Text.IO as TIO
+import System.Directory (doesFileExist)
+
 import Grasp.Types
 import Grasp.NativeTypes
 import Grasp.HsRegistry (dispatchRegistered)
 import Grasp.DynDispatch (dynDispatch, dynDispatchAnnotated)
+import Grasp.Parser (parseFile)
 
 defaultEnv :: IO Env
 defaultEnv = do
@@ -171,6 +175,61 @@ eval env (EList (ESym "module" : ESym name : EList (ESym "export" : exports) : b
   -- Store module in parent's envModules
   modifyIORef' env $ \ed -> ed { envModules = Map.insert name modVal (envModules ed) }
   pure modVal
+-- import: load a module from file
+eval env (EList [ESym "import", moduleRef]) = do
+  -- Resolve file path
+  (filePath, _expectedName) <- case moduleRef of
+    EStr path -> pure (T.unpack path, Nothing :: Maybe T.Text)
+    ESym name -> pure (T.unpack name <> ".gsp", Just name)
+    _ -> error "import expects a symbol or string"
+  -- Check file exists
+  exists <- doesFileExist filePath
+  if not exists
+    then error $ "import: file not found: " <> filePath
+    else do
+      -- Read and parse file
+      content <- TIO.readFile filePath
+      case parseFile content of
+        Left err -> error $ "import: parse error in " <> filePath <> ": " <> show err
+        Right exprs -> do
+          case exprs of
+            [] -> error $ "import: no module definition in " <> filePath
+            (modExpr:rest) -> do
+              -- Extract module name from the module form
+              let modName = case modExpr of
+                    EList (ESym "module" : ESym n : _) -> n
+                    _ -> error $ "import: no module definition in " <> filePath
+              -- Check for circular dependency
+              ed <- readIORef env
+              if modName `elem` envLoading ed
+                then error $ "import: circular dependency: "
+                          <> T.unpack (T.intercalate " -> " (envLoading ed <> [modName]))
+                else do
+                  -- Check cache
+                  case Map.lookup modName (envModules ed) of
+                    Just cached -> do
+                      bindModuleExports env modName cached
+                      pure cached
+                    Nothing -> do
+                      -- Push loading stack
+                      modifyIORef' env $ \ed' -> ed' { envLoading = envLoading ed' <> [modName] }
+                      -- Create child env inheriting primitives
+                      parentEd <- readIORef env
+                      childEnv <- newIORef parentEd
+                      -- Eval all expressions (module + any top-level forms)
+                      results <- mapM (eval childEnv) (modExpr : rest)
+                      -- Find the module result
+                      let modVal = case filter (\v -> graspTypeOf v == GTModule) results of
+                            (m:_) -> m
+                            []    -> error $ "import: no module definition in " <> filePath
+                      -- Pop loading stack and cache
+                      modifyIORef' env $ \ed' -> ed'
+                        { envLoading = filter (/= modName) (envLoading ed')
+                        , envModules = Map.insert modName modVal (envModules ed')
+                        }
+                      -- Bind exports
+                      bindModuleExports env modName modVal
+                      pure modVal
 -- lazy: defer evaluation into a real GHC THUNK
 eval env (EList [ESym "lazy", body]) = do
   thunk <- unsafeInterleaveIO (eval env body)
@@ -236,6 +295,14 @@ apply v args = do
           childEnv <- newIORef $ parentEd { envBindings = Map.union bindings (envBindings parentEd) }
           eval childEnv body
     t -> error $ "not a function: " <> showGraspType t
+
+-- | Bind a module's exports into the environment (qualified + unqualified).
+bindModuleExports :: Env -> T.Text -> Any -> IO ()
+bindModuleExports env modName modVal = do
+  let exports = toModuleExports modVal
+      qualifiedBindings = Map.mapKeys (\k -> modName <> "." <> k) exports
+  modifyIORef' env $ \ed -> ed
+    { envBindings = Map.union qualifiedBindings (Map.union exports (envBindings ed)) }
 
 evalQuote :: LispExpr -> IO GraspVal
 evalQuote (EInt n)    = pure $ mkInt (fromInteger n)

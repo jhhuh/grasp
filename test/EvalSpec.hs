@@ -3,10 +3,13 @@ module EvalSpec (spec) where
 
 import Test.Hspec
 import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 import Control.Concurrent (threadDelay)
 import Control.Exception (evaluate, try, SomeException)
 import Data.List (isInfixOf, isPrefixOf)
+import Data.IORef (readIORef)
 import qualified Data.Map.Strict as Map
+import System.Directory (removeFile)
 import Grasp.Types
 import Grasp.Eval (eval, defaultEnv, anyToExpr)
 import Grasp.Parser (parseLisp, parseFile)
@@ -405,6 +408,78 @@ spec = describe "Evaluator" $ do
 
     it "module prints as <module:name>" $
       run "(module foo (export) )" `shouldReturn` "<module:foo>"
+
+    it "import loads a module file" $ do
+      TIO.writeFile "/tmp/testmod.gsp"
+        "(module testmod (export x) (define x 42))"
+      env <- defaultEnv
+      case parseLisp "(import \"/tmp/testmod.gsp\")" of
+        Right expr -> do
+          _ <- eval env expr
+          case parseLisp "x" of
+            Right e -> do
+              val <- eval env e
+              printVal val `shouldBe` "42"
+            Left err -> error (show err)
+        Left err -> error (show err)
+
+    it "import creates qualified bindings" $ do
+      TIO.writeFile "/tmp/qualmod.gsp"
+        "(module qualmod (export val) (define val 99))"
+      env <- defaultEnv
+      case parseLisp "(import \"/tmp/qualmod.gsp\")" of
+        Right expr -> do
+          _ <- eval env expr
+          case parseLisp "qualmod.val" of
+            Right e -> do
+              val <- eval env e
+              printVal val `shouldBe` "99"
+            Left err -> error (show err)
+        Left err -> error (show err)
+
+    it "import caches modules" $ do
+      TIO.writeFile "/tmp/cachemod.gsp"
+        "(module cachemod (export x) (define x 1))"
+      env <- defaultEnv
+      case parseLisp "(import \"/tmp/cachemod.gsp\")" of
+        Right e1 -> do
+          _ <- eval env e1
+          case parseLisp "(import \"/tmp/cachemod.gsp\")" of
+            Right e2 -> do
+              _ <- eval env e2
+              ed <- readIORef env
+              Map.size (envModules ed) `shouldBe` 1
+            Left err -> error (show err)
+        Left err -> error (show err)
+
+    it "import detects circular dependency" $ do
+      TIO.writeFile "/tmp/circ_a.gsp"
+        "(module circ_a (export) (import \"/tmp/circ_b.gsp\"))"
+      TIO.writeFile "/tmp/circ_b.gsp"
+        "(module circ_b (export) (import \"/tmp/circ_a.gsp\"))"
+      env <- defaultEnv
+      result <- try (evaluate =<< do
+        case parseLisp "(import \"/tmp/circ_a.gsp\")" of
+          Right e -> printVal <$> eval env e
+          Left err -> error (show err)) :: IO (Either SomeException String)
+      case result of
+        Left e -> show e `shouldSatisfy` isInfixOf "circular"
+        Right _ -> expectationFailure "should have thrown"
+
+    it "import by name looks for .gsp file" $ do
+      TIO.writeFile "namemod.gsp"
+        "(module namemod (export greeting) (define greeting 42))"
+      env <- defaultEnv
+      case parseLisp "(import namemod)" of
+        Right expr -> do
+          _ <- eval env expr
+          case parseLisp "greeting" of
+            Right e -> do
+              val <- eval env e
+              printVal val `shouldBe` "42"
+            Left err -> error (show err)
+        Left err -> error (show err)
+      removeFile "namemod.gsp"
 
   describe "parseFile" $ do
     it "parses multiple expressions" $ do
