@@ -163,6 +163,60 @@ Clojure-style explicit tail recursion. `loop` establishes bindings and a restart
     (recur (+ n 1) (* acc n))))   ; => 120 (5!)
 ```
 
+### `with-handler` / `signal`
+
+A delimited-continuation condition system using GHC's `prompt#` and `control0#` primops:
+
+```lisp
+(with-handler
+  (lambda (condition restart)
+    ;; condition: the signaled value
+    ;; restart: calling it resumes from the signal point
+    (if (= condition 'division-by-zero)
+      (restart 0)        ; (signal ...) returns 0, body continues
+      condition))        ; don't restart, with-handler returns this
+  body)
+
+(signal value)  ; raise a condition to the nearest handler
+```
+
+The handler receives two arguments: the signaled value and a restart function. If the handler calls `(restart v)`, evaluation resumes from the signal point with `v` as the return value. If the handler returns without calling restart, `with-handler` returns the handler's value and the body is abandoned.
+
+Haskell exceptions (from `error` calls) are also caught and forwarded to the handler with a non-resumable restart.
+
+```lisp
+;; Catch division errors
+(with-handler (lambda (c r) "caught") (car 42))  ; => "caught"
+
+;; Nested handlers
+(with-handler (lambda (c r) (+ c 1000))
+  (with-handler (lambda (c r) (r (+ c 10)))
+    (+ 1 (signal 5))))  ; => 16
+```
+
+### `match`
+
+Structural pattern matching:
+
+```lisp
+(match expr
+  (0 "zero")                    ; literal match
+  ((cons h t) (list 'head h))  ; destructure cons
+  (() "empty")                  ; nil match
+  (#t "true")                  ; boolean match
+  (_ "wildcard")               ; match anything, don't bind
+  (x (list 'other x)))        ; variable bind (catchall)
+```
+
+Patterns are tried top-to-bottom. The first match wins. No match produces an error.
+
+Pattern types:
+- **Literal**: `0`, `"hello"`, `#t`, `#f` — match by equality
+- **Nil**: `()` — match empty list
+- **Cons**: `(cons head tail)` — destructure a cons cell
+- **Wildcard**: `_` — match anything, don't bind
+- **Variable**: bare symbol — match anything, bind to name
+
 ## Primitive Functions
 
 ### Arithmetic
@@ -228,6 +282,34 @@ Improper lists (where cdr is not a list) print with dot notation:
 ```lisp
 (cons 1 2)  ; => (1 . 2)
 ```
+
+### Function Application
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `apply` | `Fn -> List -> a` | Call a function with arguments from a list |
+
+```lisp
+(apply + (list 1 2))             ; => 3
+(apply (lambda (x y) (+ x y)) (list 10 20))  ; => 30
+```
+
+### Debugging / Introspection
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `type-of` | `a -> String` | Returns the type name as a string |
+| `inspect` | `a -> List` | Returns closure info (type, pointer count, non-pointer count) |
+| `gc-stats` | `() -> List` | Returns GC statistics as an association list |
+
+```lisp
+(type-of 42)              ; => "Int"
+(type-of (lambda (x) x))  ; => "Lambda"
+(inspect 42)              ; => (type "Int" pointers 0 non-pointers 1)
+(gc-stats)                ; => (collections N bytes-allocated N max-live-bytes N)
+```
+
+`gc-stats` requires `+RTS -T` to enable statistics collection. Without it, returns an error message.
 
 ## Haskell Interop
 
@@ -461,6 +543,7 @@ Every Grasp value is a `GraspVal` (alias for `Any` from `GHC.Exts`) — an untyp
 | `GraspChan` | Channel | `<chan>` |
 | `GraspModule` | Module | `<module:name>` |
 | `GraspRecur` | Recur (internal) | error if printed |
+| `GraspPromptTag` | Prompt tag (internal) | `<prompt-tag>` |
 
 GHC-equivalent types (Int, Double, Bool) reuse GHC's own closures — a Grasp integer IS a Haskell `Int`, with zero marshaling overhead. Grasp-specific types use Haskell ADTs whose info tables GHC generates automatically.
 
@@ -468,15 +551,31 @@ There is no type system. Any operation that receives an unexpected type will pro
 
 ## Error Handling
 
-Errors are currently reported as Haskell exceptions caught by the REPL:
+### Condition System
+
+Grasp has a condition system built on GHC's delimited continuation primops. See `with-handler` and `signal` in Special Forms.
+
+The prelude provides convenience wrappers:
+
+```lisp
+(import "lib/prelude.gsp")
+
+;; try: wraps a thunk, returns (error condition) on signal
+(try (lambda () (signal 42)))     ; => (error 42)
+(try (lambda () (+ 1 2)))         ; => 3
+
+;; catch: like try but with custom handler
+(catch (lambda () (signal 42))
+       (lambda (c r) (r 0)))      ; => 0 (restart with 0)
+```
+
+### REPL Error Recovery
+
+The REPL catches all Haskell exceptions and continues:
 
 ```
-λ> (/ 1 0)
-error: unbound symbol: /
 λ> (car 42)
 error: car expects a cons cell
 λ> (+ 1 "hello")
 error: expected two integers, got: 2 args
 ```
-
-There is no user-level exception mechanism yet. The REPL catches all exceptions and continues.
