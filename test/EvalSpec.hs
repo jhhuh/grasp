@@ -684,6 +684,33 @@ spec = describe "Evaluator" $ do
     it "range" $
       runPrelude ["(range 0 5)"] `shouldReturn` "(0 1 2 3 4)"
 
+  describe "prelude try/catch" $ do
+    it "try catches signal" $ do
+      env <- defaultEnv
+      let code = T.unlines
+            [ "(define try (lambda (thunk)"
+            , "  (with-handler (lambda (c r) (list 'error c)) (thunk))))"
+            , "(try (lambda () (signal 42)))"
+            ]
+      case parseFile code of
+        Right exprs -> do
+          results <- mapM (eval env) exprs
+          printVal (last results) `shouldBe` "(error 42)"
+        Left err -> expectationFailure (show err)
+
+    it "try returns value on no signal" $ do
+      env <- defaultEnv
+      let code = T.unlines
+            [ "(define try (lambda (thunk)"
+            , "  (with-handler (lambda (c r) (list 'error c)) (thunk))))"
+            , "(try (lambda () 42))"
+            ]
+      case parseFile code of
+        Right exprs -> do
+          results <- mapM (eval env) exprs
+          printVal (last results) `shouldBe` "42"
+        Left err -> expectationFailure (show err)
+
   describe "match" $ do
     it "matches integer literal" $
       run "(match 1 (1 \"one\") (2 \"two\"))" `shouldReturn` "\"one\""

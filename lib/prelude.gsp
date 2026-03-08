@@ -3,7 +3,8 @@
           length append reverse
           not and or
           abs min max
-          nth range)
+          nth range
+          try catch)
 
   (define not (lambda (x) (if x #f #t)))
 
@@ -60,4 +61,10 @@
   (define range (lambda (start end)
     (loop ((i start) (acc '()))
       (if (= i end) (reverse acc)
-        (recur (+ i 1) (cons i acc)))))))
+        (recur (+ i 1) (cons i acc))))))
+
+  (define try (lambda (thunk)
+    (with-handler (lambda (c r) (list 'error c)) (thunk))))
+
+  (define catch (lambda (thunk handler)
+    (with-handler (lambda (c r) (handler c r)) (thunk)))))
