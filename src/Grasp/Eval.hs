@@ -105,12 +105,15 @@ makeChanOp _ = error "make-chan expects no arguments"
 
 chanPutOp :: [Any] -> IO Any
 chanPutOp [ch, val] = do
-  writeChan (toChan ch) val
+  ch' <- forceIfLazy ch
+  writeChan (toChan ch') val
   pure mkNil
 chanPutOp _ = error "chan-put expects two arguments (channel, value)"
 
 chanGetOp :: [Any] -> IO Any
-chanGetOp [ch] = readChan (toChan ch)
+chanGetOp [ch] = do
+  ch' <- forceIfLazy ch
+  readChan (toChan ch')
 chanGetOp _ = error "chan-get expects one argument (channel)"
 
 eval :: Env -> LispExpr -> IO GraspVal
