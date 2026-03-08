@@ -71,7 +71,15 @@ Creates an anonymous function (closure):
 (lambda (x y) (+ x y))
 ```
 
-Lambdas capture their lexical environment at creation time. The body must be a single expression.
+Lambdas capture their lexical environment at creation time. The body may contain multiple expressions, which are evaluated sequentially (implicit `begin`):
+
+```lisp
+(lambda (x)
+  (define y (* x x))
+  (+ y 1))
+```
+
+Single-expression lambdas work as before:
 
 ```lisp
 (define make-adder (lambda (n) (lambda (x) (+ n x))))
@@ -99,6 +107,61 @@ Returns its argument unevaluated:
 ```
 
 The `'expr` reader syntax desugars to `(quote expr)` during parsing.
+
+### `begin`
+
+Evaluates a sequence of expressions and returns the value of the last one:
+
+```lisp
+(begin
+  (define x 1)
+  (define y 2)
+  (+ x y))         ; => 3
+
+(begin)             ; => ()
+```
+
+`(begin)` with no body expressions returns nil. Multi-expression lambda bodies and `let` bodies use implicit `begin` semantics.
+
+### `let`
+
+Creates sequential bindings in a child environment, then evaluates the body:
+
+```lisp
+(let ((x 10)
+      (y (* x 2)))  ; y sees x — bindings are sequential (like Scheme's let*)
+  (+ x y))          ; => 30
+```
+
+Each binding is evaluated in order, and later bindings can reference earlier ones. The body supports multiple expressions (implicit `begin`):
+
+```lisp
+(let ((x 1))
+  (define y 2)
+  (+ x y))         ; => 3
+```
+
+### `loop` / `recur`
+
+Clojure-style explicit tail recursion. `loop` establishes bindings and a restart point; `recur` jumps back with new values:
+
+```lisp
+(loop ((i 0) (sum 0))
+  (if (> i 10)
+    sum
+    (recur (+ i 1) (+ sum i))))   ; => 55
+```
+
+`recur` evaluates its arguments, then re-binds the loop variables and re-executes the body. It is only valid inside `loop` — using `recur` outside produces an error. The number of `recur` arguments must match the number of loop bindings.
+
+`loop` body supports multiple expressions (implicit `begin`):
+
+```lisp
+(loop ((n 1) (acc 1))
+  (if (> n 5)
+    acc
+    (recur (+ n 1) (* acc n))))   ; => 120 (5!)
+```
 
 ## Primitive Functions
 
@@ -397,6 +460,7 @@ Every Grasp value is a `GraspVal` (alias for `Any` from `GHC.Exts`) — an untyp
 | `GraspMacro` | Macro | `<macro>` |
 | `GraspChan` | Channel | `<chan>` |
 | `GraspModule` | Module | `<module:name>` |
+| `GraspRecur` | Recur (internal) | error if printed |
 
 GHC-equivalent types (Int, Double, Bool) reuse GHC's own closures — a Grasp integer IS a Haskell `Int`, with zero marshaling overhead. Grasp-specific types use Haskell ADTs whose info tables GHC generates automatically.
 

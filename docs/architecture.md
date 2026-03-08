@@ -33,9 +33,9 @@ Grasp is structured as a pipeline: **parser → evaluator → printer**, with a 
 
 ## Modules
 
-### `Main.hs` — REPL loop
+### `Main.hs` — Entry point (REPL and file execution)
 
-The entry point. Reads a line, parses it, evaluates it, prints the result, and loops. Handles `(quit)` and EOF (Ctrl-D). Catches all exceptions with `SomeException` to prevent crashes.
+Dispatches on `getArgs`: with no arguments, starts the interactive REPL (read-eval-print loop). With a single file argument (`cabal run grasp -- file.gsp`), reads the file, parses it with `parseFile`, evaluates all top-level expressions sequentially, and prints the last result. Handles `(quit)` and EOF (Ctrl-D) in REPL mode. Catches all exceptions with `SomeException` to prevent crashes.
 
 ### `Grasp.Types` — Core type definitions
 
@@ -51,7 +51,7 @@ The two-type design keeps parsing pure and separates syntax from semantics.
 
 ### `Grasp.NativeTypes` — Value representation and type discrimination
 
-Defines the Grasp-specific ADTs (`GraspSym`, `GraspStr`, `GraspCons`, `GraspNil`, `GraspLambda`, `GraspPrim`, `GraspLazy`, `GraspMacro`, `GraspChan`, `GraspModule`) whose info tables GHC generates automatically. Provides:
+Defines the Grasp-specific ADTs (`GraspSym`, `GraspStr`, `GraspCons`, `GraspNil`, `GraspLambda`, `GraspPrim`, `GraspLazy`, `GraspMacro`, `GraspChan`, `GraspModule`, `GraspRecur`) whose info tables GHC generates automatically. Provides:
 
 - **Type discrimination** — `graspTypeOf :: Any -> GraspType` reads the info-table address from a closure header via `unpackClosure#` and compares against cached reference addresses. Zero FFI overhead.
 - **Constructors** — `mkInt`, `mkBool`, `mkCons`, `mkLambda`, etc. wrap Haskell values as `Any` via `unsafeCoerce`.
@@ -87,6 +87,10 @@ A tree-walking interpreter. `eval :: Env -> LispExpr -> IO GraspVal` pattern-mat
 - **`(lazy expr)`** — defers evaluation via `unsafeInterleaveIO`, wraps in `GraspLazy`
 - **`(force expr)`** — enters the lazy thunk via `forceIfLazy`; identity on non-lazy values
 - **`(defmacro name (params) body)`** — creates a `GraspMacro` and binds it in the environment
+- **`(begin e1 ... en)`** — evaluates forms sequentially, returns the last result; `(begin)` returns nil
+- **`(let ((x v) ...) body...)`** — creates a child environment, binds sequentially (each binding sees earlier ones), evaluates body with begin semantics
+- **`(loop ((var init) ...) body...)`** — establishes bindings and a restart point; evaluates body, and if the result is a `GraspRecur` sentinel (`GTRecur`), re-binds loop variables with the recur arguments and iterates
+- **`(recur val...)`** — evaluates arguments and wraps them in a `GraspRecur` sentinel; only meaningful inside `loop`
 - **`(module name (export sym...) body...)`** — creates a `GraspModule`: evaluates body in a child env, validates all exports are defined, stores module in `envModules`
 - **`(import name)` / `(import "path")`** — loads a `.gsp` file, parses it with `parseFile`, evaluates the `(module ...)` form, caches in `envModules`, detects circular dependencies via `envLoading`, binds exports both qualified (`mod.sym`) and unqualified
 - **`(f args...)`** — evaluates `f`; if macro, quotes args, runs body, converts result via `anyToExpr`, re-evals in caller's env; otherwise evaluates args and calls `apply`
@@ -251,3 +255,7 @@ Grasp uses [Cabal](https://www.haskell.org/cabal/) with a [Nix](https://nixos.or
 - **`-threaded -rtsopts`** — links with the threaded RTS (required for `rts_lock`)
 
 The test suite currently compiles sources twice (via `hs-source-dirs: test, src`) rather than extracting a library. This is a known simplification for the MVP.
+
+## Standard Library
+
+`lib/prelude.gsp` is a standard library written in Grasp itself. It provides common list utilities (map, filter, fold, length, append, etc.) implemented using `loop`/`recur` for explicit tail recursion. The prelude is a regular Grasp module — it can be loaded via `(import "lib/prelude.gsp")` or automatically in future phases.

@@ -2,12 +2,12 @@
 
 Grasp's MVP demonstrates that a dynamic Lisp can construct closures on GHC's heap and evaluate them through the STG machine. This page outlines where the project goes from here.
 
-## Current Status: Phase 6 Complete (Module System)
+## Current Status: Phase 7 Complete (Control Flow & Standard Library)
 
 What works:
 - S-expression parser (integers, strings, booleans, symbols, lists, quoting)
-- Tree-walking evaluator (define, lambda, if, quote, closures)
-- 12 built-in primitives (arithmetic, comparison, list operations)
+- Tree-walking evaluator (define, lambda, if, quote, begin, let, loop/recur, closures)
+- 16 built-in primitives (arithmetic, comparison, list operations)
 - **Native GHC closures** — every runtime value is a real `StgClosure` on the GHC heap (`GraspVal = Any`)
 - **Type discrimination via `unpackClosure#`** — reads info-table addresses with zero FFI overhead
 - C bridge to GHC RTS (`rts_apply`, `rts_mkInt`, `rts_getInt`)
@@ -23,7 +23,12 @@ What works:
 - **`defmacro`** — user-defined macros that receive unevaluated arguments as quoted data, return code for re-evaluation
 - **`spawn`** — green threads via `forkIO`, channels via `Chan` for inter-thread communication
 - **`module` / `import`** — file-based module system with qualified access, caching, and circular dependency detection
-- 162 tests passing
+- **`begin` / `let`** — sequential evaluation and sequential let-bindings with implicit begin
+- **Multi-expression lambda** — lambda bodies support multiple expressions via implicit begin
+- **`loop` / `recur`** — Clojure-style explicit tail recursion with `GraspRecur` sentinel
+- **File execution** — `cabal run grasp -- file.gsp` runs a script, prints the last result
+- **Standard library** — `lib/prelude.gsp` provides common utilities (map, filter, fold, etc.)
+- ~196 tests passing
 
 What the project proves: a dynamic Lisp can inhabit GHC's heap as a native tenant, call arbitrary Haskell functions, and create real GHC thunks with standard update semantics. Grasp integers ARE `I#` closures, lazy values ARE GHC THUNKs, and the RTS's own evaluation machinery forces them.
 
@@ -126,6 +131,26 @@ Macros compose naturally — a macro can expand into another macro call, which i
 ```
 
 Modules evaluate their bodies in a child environment inheriting primitives. Only exported symbols are accessible. Import binds exports both qualified and unqualified. The `GraspModule` ADT uses the same info-pointer type discrimination as all other Grasp types.
+
+## Phase 7: Control Flow & Standard Library ✓
+
+**Status**: Complete (2026-03-08). ~196 tests.
+
+Added essential control flow constructs and a standard library:
+
+- **`begin`** — `(begin e1 e2 ... en)` evaluates forms sequentially, returns the last result. `(begin)` returns nil.
+- **`let`** — `(let ((x 1) (y 2)) body...)` creates sequential bindings (like Scheme's `let*`). Later bindings can reference earlier ones. Body uses implicit begin.
+- **Multi-expression lambda** — `(lambda (params) e1 e2 ... en)` wraps multiple body forms in an implicit `begin`.
+- **`loop` / `recur`** — Clojure-style explicit tail recursion. `loop` establishes bindings and a restart point; `recur` re-binds and jumps back. Implemented via the `GraspRecur` sentinel ADT — `recur` returns a `GraspRecur` value, and `loop`'s iteration checks for `GTRecur` to decide whether to re-bind and continue or return.
+- **File execution** — `cabal run grasp -- file.gsp` parses and evaluates a `.gsp` file, printing the last result. Dispatched via `getArgs` in `Main.hs`.
+- **Standard library** — `lib/prelude.gsp` provides common list utilities (map, filter, fold, length, append, etc.) implemented in Grasp itself using `loop`/`recur`.
+
+```lisp
+(loop ((i 0) (sum 0))
+  (if (> i 10)
+    sum
+    (recur (+ i 1) (+ sum i))))   ; => 55
+```
 
 ## Future Possibilities
 

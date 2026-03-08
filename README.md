@@ -16,7 +16,7 @@ Grasp asks: **what if a dynamic language simply moved in?**
 
 ## Status
 
-**Phase 6 complete.** All values are native STG closures on GHC's heap. 162 tests passing.
+**Phase 7 complete.** All values are native STG closures on GHC's heap. ~196 tests passing.
 
 ```
 λ> (define square (lambda (x) (* x x)))
@@ -33,6 +33,9 @@ Grasp asks: **what if a dynamic language simply moved in?**
 ()
 λ> (chan-get ch)
 36
+λ> (loop ((i 0) (sum 0))
+     (if (> i 10) sum (recur (+ i 1) (+ sum i))))
+55
 ```
 
 What works:
@@ -44,6 +47,10 @@ What works:
 - **`defmacro`** -- hygienic macros with quote/unquote
 - **`spawn` / channels** -- green threads via `forkIO`, blocking channels via `Chan`
 - **`module` / `import`** -- file-based modules with qualified access (`math.square`), caching, circular dependency detection
+- **`begin` / `let`** -- sequential evaluation, sequential bindings with implicit begin
+- **`loop` / `recur`** -- Clojure-style explicit tail recursion
+- **File execution** -- `cabal run grasp -- file.gsp` runs scripts
+- **Standard library** -- `lib/prelude.gsp` with map, filter, fold, and more
 - REPL with error recovery, 16 built-in primitives
 
 ## Quick Start
@@ -53,7 +60,8 @@ Requires [Nix](https://nixos.org/download.html) with flakes enabled.
 ```bash
 git clone https://github.com/jhhuh/grasp.git
 cd grasp
-nix develop -c cabal run grasp
+nix develop -c cabal run grasp           # interactive REPL
+nix develop -c cabal run grasp -- file.gsp  # run a script
 ```
 
 ## Documentation
