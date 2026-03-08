@@ -47,6 +47,7 @@ defaultEnv = do
         , ("make-chan", mkPrim "make-chan" makeChanOp)
         , ("chan-put", mkPrim "chan-put" chanPutOp)
         , ("chan-get", mkPrim "chan-get" chanGetOp)
+        , ("apply", mkPrim "apply" applyOp)
         ]
     , envHsRegistry = Map.empty
     , envGhcSession = ghcRef
@@ -121,6 +122,21 @@ chanGetOp [ch] = do
   ch' <- forceIfLazy ch
   readChan (toChan ch')
 chanGetOp _ = error "chan-get expects one argument (channel)"
+
+graspListToList :: Any -> IO [Any]
+graspListToList v = do
+  v' <- forceIfLazy v
+  if isNil v' then pure []
+  else if isCons v' then do
+    rest <- graspListToList (toCdr v')
+    pure (toCar v' : rest)
+  else error "apply: second argument must be a list"
+
+applyOp :: [Any] -> IO Any
+applyOp [f, argList] = do
+  args <- graspListToList argList
+  apply f args
+applyOp _ = error "apply expects two arguments (function, arg-list)"
 
 eval :: Env -> LispExpr -> IO GraspVal
 eval _ (EInt n)    = pure $ mkInt (fromInteger n)

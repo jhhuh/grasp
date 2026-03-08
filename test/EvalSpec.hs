@@ -86,6 +86,16 @@ spec = describe "Evaluator" $ do
             Left err -> error (show err)
         Left err -> error (show err)
 
+  describe "apply" $ do
+    it "applies a function to a list of arguments" $
+      run "(apply + (list 1 2))" `shouldReturn` "3"
+
+    it "applies a lambda to a list" $
+      run "(apply (lambda (x y) (+ x y)) (list 10 20))" `shouldReturn` "30"
+
+    it "applies with empty args" $
+      run "(apply list (list))" `shouldReturn` "()"
+
   describe "conditionals" $ do
     it "evaluates if true branch" $
       run "(if #t 1 2)" `shouldReturn` "1"
