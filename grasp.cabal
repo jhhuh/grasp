@@ -31,6 +31,7 @@ executable grasp
     , containers
     , mtl
     , directory
+    , isocline
   ghc-options:
     -threaded
     -rtsopts

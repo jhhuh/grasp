@@ -2,14 +2,17 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module Main where
 
-import System.IO (hFlush, stdout, hSetBuffering, stdin, BufferMode(..), isEOF)
 import System.Environment (getArgs)
 import System.Exit (exitFailure)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Control.Exception (catch, SomeException, displayException)
+import Data.IORef (readIORef)
+import qualified Data.Map.Strict as Map
 
-import Grasp.Types (Env)
+import qualified System.Console.Isocline as IC
+
+import Grasp.Types (Env, EnvData(..))
 import Grasp.Parser
 import Grasp.Eval
 import Grasp.Printer
@@ -20,9 +23,9 @@ main = do
   args <- getArgs
   case args of
     [] -> do
-      hSetBuffering stdin LineBuffering
       putStrLn "grasp v0.1 — a Lisp on GHC's runtime"
       putStrLn "Type (quit) to exit."
+      IC.setHistory ".grasp_history" 200
       env <- defaultEnvWithInterop
       repl env
     [file] -> runFile file
@@ -50,17 +53,14 @@ runFile file = do
 
 repl :: Env -> IO ()
 repl env = do
-  putStr "λ> "
-  hFlush stdout
-  eof <- isEOF
-  if eof
-    then putStrLn "\nBye."
-    else do
-      line <- TIO.getLine
-      if T.strip line == "(quit)"
-        then putStrLn "Bye."
-        else do
-          case parseLisp line of
+  minput <- IC.readlineExMaybe "λ> " (Just (completer env)) Nothing
+  case minput of
+    Nothing -> putStrLn "\nBye."  -- Ctrl-D / EOF
+    Just input
+      | T.strip (T.pack input) == "(quit)" -> putStrLn "Bye."
+      | null input -> repl env
+      | otherwise -> do
+          case parseLisp (T.pack input) of
             Left err -> putStrLn $ "parse error: " <> show err
             Right expr -> do
               result <- (Right <$> eval env expr)
@@ -69,3 +69,10 @@ repl env = do
                 Right val -> putStrLn (printVal val)
                 Left err  -> putStrLn $ "error: " <> err
           repl env
+
+-- | Tab completion: complete env binding names
+completer :: Env -> IC.CompletionEnv -> String -> IO ()
+completer env cenv input = do
+  ed <- readIORef env
+  let names = map T.unpack $ Map.keys (envBindings ed)
+  IC.completeWord cenv input Nothing (\prefix -> IC.completionsFor prefix names)
