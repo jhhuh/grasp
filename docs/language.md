@@ -262,6 +262,38 @@ then converted back to an expression and evaluated in the caller's environment.
 
 A macro value prints as `<macro>`.
 
+## Concurrency
+
+Grasp provides green threads and channels for concurrent programming. Threads are real GHC green threads scheduled by GHC's native scheduler.
+
+### `spawn`
+
+Spawns a new green thread running the given zero-argument function:
+
+```lisp
+(spawn (lambda () (+ 1 2)))  ; runs in background, returns ()
+```
+
+`spawn` returns `()` immediately. The spawned thread runs concurrently. Exceptions in spawned threads are silently caught — use channels to communicate results or errors back.
+
+### `make-chan`, `chan-put`, `chan-get`
+
+Channels provide typed, blocking communication between threads:
+
+```lisp
+(define ch (make-chan))
+(spawn (lambda () (chan-put ch (* 6 7))))
+(chan-get ch)  ; => 42 (blocks until value is available)
+```
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `make-chan` | `() -> Chan` | Create a new channel |
+| `chan-put` | `Chan -> a -> ()` | Write a value to the channel |
+| `chan-get` | `Chan -> a` | Read a value (blocks until available) |
+
+A channel value prints as `<chan>`.
+
 ## Evaluation Model
 
 Grasp is **strict** (call-by-value). All arguments are evaluated before function application:
@@ -323,6 +355,7 @@ Every Grasp value is a `GraspVal` (alias for `Any` from `GHC.Exts`) — an untyp
 | `GraspPrim` | Built-in function | `<primitive:+>` |
 | `GraspLazy` | Lazy thunk | `<lazy>` |
 | `GraspMacro` | Macro | `<macro>` |
+| `GraspChan` | Channel | `<chan>` |
 
 GHC-equivalent types (Int, Double, Bool) reuse GHC's own closures — a Grasp integer IS a Haskell `Int`, with zero marshaling overhead. Grasp-specific types use Haskell ADTs whose info tables GHC generates automatically.
 
