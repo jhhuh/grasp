@@ -613,3 +613,63 @@ spec = describe "Evaluator" $ do
       case parseFile (T.pack input) of
         Right exprs -> length exprs `shouldBe` 1
         Left err -> error (show err)
+
+  describe "prelude" $ do
+    let runPrelude exprs = do
+          env <- defaultEnv
+          case parseLisp "(import \"lib/prelude.gsp\")" of
+            Right importExpr -> do
+              _ <- eval env importExpr
+              results <- mapM (\src -> case parseLisp (T.pack src) of
+                Right e -> eval env e
+                Left err -> error (show err)) exprs
+              pure $ printVal (last results)
+            Left err -> error (show err)
+
+    it "not" $ do
+      runPrelude ["(not #t)"] `shouldReturn` "#f"
+      runPrelude ["(not #f)"] `shouldReturn` "#t"
+
+    it "and" $ do
+      runPrelude ["(and #t #t)"] `shouldReturn` "#t"
+      runPrelude ["(and #t #f)"] `shouldReturn` "#f"
+
+    it "or" $ do
+      runPrelude ["(or #f #t)"] `shouldReturn` "#t"
+      runPrelude ["(or #f #f)"] `shouldReturn` "#f"
+
+    it "abs" $ do
+      runPrelude ["(abs (- 0 5))"] `shouldReturn` "5"
+      runPrelude ["(abs 3)"] `shouldReturn` "3"
+
+    it "min and max" $ do
+      runPrelude ["(min 3 7)"] `shouldReturn` "3"
+      runPrelude ["(max 3 7)"] `shouldReturn` "7"
+
+    it "length" $ do
+      runPrelude ["(length '())"] `shouldReturn` "0"
+      runPrelude ["(length (list 1 2 3))"] `shouldReturn` "3"
+
+    it "reverse" $
+      runPrelude ["(reverse (list 1 2 3))"] `shouldReturn` "(3 2 1)"
+
+    it "append" $
+      runPrelude ["(append (list 1 2) (list 3 4))"] `shouldReturn` "(1 2 3 4)"
+
+    it "map" $
+      runPrelude ["(map (lambda (x) (+ x 1)) (list 1 2 3))"] `shouldReturn` "(2 3 4)"
+
+    it "filter" $
+      runPrelude ["(filter (lambda (x) (> x 2)) (list 1 2 3 4))"] `shouldReturn` "(3 4)"
+
+    it "fold-left" $
+      runPrelude ["(fold-left + 0 (list 1 2 3 4))"] `shouldReturn` "10"
+
+    it "fold-right" $
+      runPrelude ["(fold-right cons '() (list 1 2 3))"] `shouldReturn` "(1 2 3)"
+
+    it "nth" $
+      runPrelude ["(nth 1 (list 10 20 30))"] `shouldReturn` "20"
+
+    it "range" $
+      runPrelude ["(range 0 5)"] `shouldReturn` "(0 1 2 3 4)"
