@@ -24,6 +24,8 @@ data EnvData = EnvData
   { envBindings   :: Map.Map Text GraspVal
   , envHsRegistry :: HsFuncRegistry
   , envGhcSession :: IORef (Maybe Any)  -- GhcState, cast via unsafeCoerce in DynLookup
+  , envModules    :: Map.Map Text GraspVal  -- cached modules by name
+  , envLoading    :: [Text]                 -- circular dep detection stack
   }
 
 type Env = IORef EnvData

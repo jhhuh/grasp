@@ -4,6 +4,7 @@ module NativeTypesSpec (spec) where
 import Test.Hspec
 import Data.IORef
 import Control.Concurrent.Chan (newChan)
+import qualified Data.Map.Strict as Map
 import Grasp.Types (LispExpr(..))
 import Grasp.NativeTypes
 
@@ -64,6 +65,9 @@ spec = describe "NativeTypes" $ do
     it "identifies Chan" $ do
       ch <- newChan
       graspTypeOf (mkChan ch) `shouldBe` GTChan
+
+    it "identifies Module" $
+      graspTypeOf (mkModule "test" Map.empty) `shouldBe` GTModule
 
   describe "constructors and extractors" $ do
     it "round-trips Int" $

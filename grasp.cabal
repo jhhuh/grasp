@@ -29,6 +29,7 @@ executable grasp
     , megaparsec
     , containers
     , mtl
+    , directory
   ghc-options:
     -threaded
     -rtsopts
@@ -71,6 +72,7 @@ test-suite grasp-test
     , mtl
     , hspec
     , hspec-megaparsec
+    , directory
   ghc-options:
     -threaded
     -rtsopts

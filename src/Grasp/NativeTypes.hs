@@ -12,6 +12,7 @@ module Grasp.NativeTypes
   , GraspLazy(..)
   , GraspMacro(..)
   , GraspChan(..)
+  , GraspModule(..)
   -- * Type discrimination
   , GraspType(..)
   , graspTypeOf
@@ -23,6 +24,7 @@ module Grasp.NativeTypes
   , mkLazy
   , mkMacro
   , mkChan
+  , mkModule
   -- * Extractors
   , toInt, toDouble, toBool
   , toSym, toStr
@@ -31,6 +33,8 @@ module Grasp.NativeTypes
   , forceLazy, forceIfLazy
   , toMacroParts
   , toChan
+  , toModuleName
+  , toModuleExports
   -- * Predicates
   , isNil, isCons
   -- * Equality
@@ -45,6 +49,7 @@ import Unsafe.Coerce (unsafeCoerce)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Control.Concurrent.Chan (Chan)
+import qualified Data.Map.Strict as Map
 
 -- GraspLambda needs LispExpr and Env from Grasp.Types.
 -- This import direction avoids circular deps (Types doesn't import NativeTypes).
@@ -63,13 +68,14 @@ data GraspPrim   = GraspPrim Text ([Any] -> IO Any)
 data GraspLazy   = GraspLazy Any  -- lazy field: holds a GHC THUNK
 data GraspMacro  = GraspMacro [Text] LispExpr Env
 data GraspChan   = GraspChan (Chan Any)
+data GraspModule = GraspModule Text (Map.Map Text Any)
 
 -- ─── Type tags ────────────────────────────────────────────
 
 data GraspType
   = GTInt | GTDouble | GTBoolTrue | GTBoolFalse
   | GTSym | GTStr | GTCons | GTNil
-  | GTLambda | GTPrim | GTLazy | GTMacro | GTChan
+  | GTLambda | GTPrim | GTLazy | GTMacro | GTChan | GTModule
   deriving (Eq, Show)
 
 showGraspType :: GraspType -> String
@@ -86,6 +92,7 @@ showGraspType GTPrim      = "Primitive"
 showGraspType GTLazy      = "Lazy"
 showGraspType GTMacro     = "Macro"
 showGraspType GTChan      = "Chan"
+showGraspType GTModule    = "Module"
 
 -- ─── Info pointer cache ───────────────────────────────────
 -- Each closure type has a unique info-table address.
@@ -152,6 +159,10 @@ macroInfoPtr = getInfoPtr (GraspMacro undefined undefined undefined)
 chanInfoPtr :: Ptr ()
 chanInfoPtr = getInfoPtr (GraspChan undefined)
 
+{-# NOINLINE moduleInfoPtr #-}
+moduleInfoPtr :: Ptr ()
+moduleInfoPtr = getInfoPtr (GraspModule undefined undefined)
+
 -- ─── Type discrimination ─────────────────────────────────
 
 graspTypeOf :: Any -> GraspType
@@ -169,6 +180,7 @@ graspTypeOf v = let p = getInfoPtr v in
   else if p == lazyInfoPtr   then GTLazy
   else if p == macroInfoPtr  then GTMacro
   else if p == chanInfoPtr   then GTChan
+  else if p == moduleInfoPtr then GTModule
   else error $ "unknown closure type at " ++ show p
 
 -- ─── Constructors ─────────────────────────────────────────
@@ -209,6 +221,9 @@ mkMacro params body env = unsafeCoerce (GraspMacro params body env)
 mkChan :: Chan Any -> Any
 mkChan ch = unsafeCoerce (GraspChan ch)
 
+mkModule :: Text -> Map.Map Text Any -> Any
+mkModule name exports = unsafeCoerce (GraspModule name exports)
+
 -- ─── Extractors ───────────────────────────────────────────
 
 toInt :: Any -> Int
@@ -246,6 +261,12 @@ toMacroParts v = let GraspMacro p b e = unsafeCoerce v in (p, b, e)
 
 toChan :: Any -> Chan Any
 toChan v = let GraspChan ch = unsafeCoerce v in ch
+
+toModuleName :: Any -> Text
+toModuleName v = let GraspModule n _ = unsafeCoerce v in n
+
+toModuleExports :: Any -> Map.Map Text Any
+toModuleExports v = let GraspModule _ e = unsafeCoerce v in e
 
 forceLazy :: Any -> IO Any
 forceLazy v = let GraspLazy inner = unsafeCoerce v in inner `seq` pure inner

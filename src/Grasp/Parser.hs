@@ -2,6 +2,7 @@
 module Grasp.Parser
   ( pExpr
   , parseLisp
+  , parseFile
   ) where
 
 import Data.Text (Text)
@@ -51,3 +52,6 @@ pExpr = pBool <|> pStr <|> pQuote <|> pList <|> try pInt <|> pSym
 
 parseLisp :: Text -> Either (ParseErrorBundle Text Void) LispExpr
 parseLisp = parse (sc *> pExpr <* eof) "<repl>"
+
+parseFile :: Text -> Either (ParseErrorBundle Text Void) [LispExpr]
+parseFile = parse (sc *> many pExpr <* eof) "<file>"

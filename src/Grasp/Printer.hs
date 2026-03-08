@@ -18,6 +18,7 @@ printVal v = case graspTypeOf v of
   GTLazy      -> "<lazy>"
   GTMacro     -> "<macro>"
   GTChan      -> "<chan>"
+  GTModule    -> "<module:" <> T.unpack (toModuleName v) <> ">"
   GTCons      -> "(" <> printCons (toCar v) (toCdr v) <> ")"
 
 printCons :: Any -> Any -> String

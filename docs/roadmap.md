@@ -2,7 +2,7 @@
 
 Grasp's MVP demonstrates that a dynamic Lisp can construct closures on GHC's heap and evaluate them through the STG machine. This page outlines where the project goes from here.
 
-## Current Status: Phase 4 Complete (Concurrency)
+## Current Status: Phase 6 Complete (Module System)
 
 What works:
 - S-expression parser (integers, strings, booleans, symbols, lists, quoting)
@@ -22,7 +22,8 @@ What works:
 - REPL with error recovery
 - **`defmacro`** — user-defined macros that receive unevaluated arguments as quoted data, return code for re-evaluation
 - **`spawn`** — green threads via `forkIO`, channels via `Chan` for inter-thread communication
-- 147 tests passing
+- **`module` / `import`** — file-based module system with qualified access, caching, and circular dependency detection
+- 162 tests passing
 
 What the project proves: a dynamic Lisp can inhabit GHC's heap as a native tenant, call arbitrary Haskell functions, and create real GHC thunks with standard update semantics. Grasp integers ARE `I#` closures, lazy values ARE GHC THUNKs, and the RTS's own evaluation machinery forces them.
 
@@ -104,22 +105,27 @@ Threads are fire-and-forget — exceptions are silently caught. STM/TVar support
 
 Macros compose naturally — a macro can expand into another macro call, which is expanded during eval. The `GraspMacro` ADT mirrors `GraspLambda` and uses the same info-pointer type discrimination.
 
-## Phase 6: Module System
+## Phase 6: Module System ✓
 
-**Goal**: Split Grasp programs across files with a module system.
+**Status**: Complete.
+
+`(module name (export sym...) body...)` defines modules with explicit exports. `(import name)` loads module files (`.gsp`) with caching and circular dependency detection. Qualified access via dot notation (`math.square`) splits symbols at eval time.
 
 ```lisp
+;; math.gsp
 (module math
   (export square cube)
-
   (define square (lambda (x) (* x x)))
   (define cube (lambda (x) (* x (square x)))))
 ```
 
 ```lisp
 (import math)
-(square 5)  ; => 25
+(square 5)       ; => 25
+(math.square 5)  ; => 25 (qualified)
 ```
+
+Modules evaluate their bodies in a child environment inheriting primitives. Only exported symbols are accessible. Import binds exports both qualified and unqualified. The `GraspModule` ADT uses the same info-pointer type discrimination as all other Grasp types.
 
 ## Future Possibilities
 
