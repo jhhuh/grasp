@@ -66,7 +66,7 @@ Husk is a Scheme interpreter written in Haskell. It implements R5RS and parts of
 
 **How it differs fundamentally**: Husk is a Lisp **written in** Haskell. Its values are Haskell ADTs (`LispVal` data type), its environments are Haskell maps, and its evaluator is a Haskell function. It uses Haskell as an implementation language the way one might use C or Java. It does not interact with the STG machine at the closure level.
 
-Grasp's MVP also represents values as Haskell ADTs, but the interop layer constructs closures on the GHC heap via the RTS C API. The roadmap is to make Grasp values themselves be native STG closures. This is a fundamentally different relationship with the runtime.
+Grasp values ARE native STG closures (`GraspVal = Any` from `GHC.Exts`). A Grasp integer IS a Haskell `I#`. Type discrimination reads info-table pointers via `unpackClosure#`. The relationship with the runtime is symbiotic, not incidental.
 
 ### Liskell
 
@@ -106,7 +106,7 @@ No existing project has attempted what Grasp is exploring:
 
 1. **Not a syntax skin**: Unlike Liskell or similar projects, Grasp is a genuinely different language with its own evaluator. It doesn't go through Haskell's type system or compilation pipeline.
 
-2. **Not just "written in Haskell"**: Unlike Husk Scheme, Grasp's goal is to make its values native STG closures. The relationship is symbiotic, not incidental.
+2. **Not just "written in Haskell"**: Unlike Husk Scheme, Grasp's values ARE native STG closures (`GraspVal = Any`). A Grasp integer is a real `I#` on the GHC heap. The relationship is symbiotic, not incidental.
 
 3. **Not just FFI**: Grasp doesn't merely call Haskell functions across an FFI boundary. It constructs closures on the GHC heap, applies functions through the STG machine's own `rts_apply`, and evaluates through the STG scheduler's own `rts_eval`. The interop happens at the closure level, not the function-call level.
 

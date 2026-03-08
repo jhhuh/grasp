@@ -29,4 +29,4 @@ Grasp reaches into this machinery and builds a Lisp on top of it.
 | [Architecture](architecture.md) | How Grasp works: parser, evaluator, C bridge, RTS integration |
 | [The STG Machine](stg-machine.md) | The runtime substrate: closures, info tables, evaluation, GC |
 | [Related Work](related-work.md) | How Grasp compares to Clojure, GHCi, Husk Scheme, etc. |
-| [Roadmap](roadmap.md) | What's next: native closures, dynamic lookup, laziness |
+| [Roadmap](roadmap.md) | Project history and future directions |

@@ -16,25 +16,35 @@ Grasp asks: **what if a dynamic language simply moved in?**
 
 ## Status
 
-**MVP complete.** The REPL works with arithmetic, lambdas, list operations, and can call compiled Haskell functions through the RTS C API.
+**Phase 6 complete.** All values are native STG closures on GHC's heap. 162 tests passing.
 
 ```
-$ grasp
-grasp v0.1 — a Lisp on GHC's runtime
-Type (quit) to exit.
-λ> (+ 1 2)
-3
 λ> (define square (lambda (x) (* x x)))
 <lambda>
 λ> (square 7)
 49
-λ> (haskell-call "reverse" (list 1 2 3))
-(3 2 1)
-λ> (haskell-call "succ" 41)
-42
+λ> (hs:Data.List.sort (list 3 1 2))
+(1 2 3)
+λ> (defmacro when (cond body) (list 'if cond body '()))
+<macro>
+λ> (define ch (make-chan))
+<chan>
+λ> (spawn (lambda () (chan-put ch (square 6))))
+()
+λ> (chan-get ch)
+36
 ```
 
-The `succ` and `negate` calls go through the C bridge — `rts_apply` builds a thunk, `rts_eval` forces it through GHC's scheduler, `rts_getInt` extracts the result. This is real RTS integration, not simulation.
+What works:
+- **Native GHC closures** -- every Grasp value IS an STG closure (`GraspVal = Any`)
+- **Type discrimination via `unpackClosure#`** -- zero FFI overhead
+- **`hs:` / `hs@` syntax** -- call any Haskell function by name at runtime
+- **Dynamic GHC API lookup** -- auto-infers types, caches compiled closures
+- **`(lazy expr)` / `(force x)`** -- opt-in laziness via real GHC THUNKs
+- **`defmacro`** -- hygienic macros with quote/unquote
+- **`spawn` / channels** -- green threads via `forkIO`, blocking channels via `Chan`
+- **`module` / `import`** -- file-based modules with qualified access (`math.square`), caching, circular dependency detection
+- REPL with error recovery, 16 built-in primitives
 
 ## Quick Start
 

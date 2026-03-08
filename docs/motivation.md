@@ -15,19 +15,18 @@ Grasp asks: **what if you could have a dynamic language that simply lives on GHC
 When you type `(+ 1 2)` at the Grasp REPL:
 
 1. The parser produces an S-expression AST
-2. The evaluator constructs Grasp values (currently Haskell ADTs; eventually native STG closures)
+2. The evaluator constructs native STG closures on GHC's heap (`GraspVal = Any`)
 3. The result is printed
 
-When you type `(haskell-call "succ" 41)`:
+When you type `(hs:succ 41)`:
 
-1. The evaluator creates a `StablePtr` to Haskell's `succ` function
+1. The evaluator looks up `succ` in the registry (or the GHC API for dynamic lookup)
 2. The C bridge calls `rts_mkInt` to box the argument on GHC's heap
 3. `rts_apply` creates an application thunk: `succ 41`
-4. `rts_eval` forces the thunk through GHC's scheduler — the STG machine evaluates it
-5. `rts_getInt` extracts the result
-6. The Lisp REPL prints `42`
+4. The thunk is forced safely in Haskell via `try`/`evaluate`
+5. The Lisp REPL prints `42`
 
-Steps 2–5 are not simulation. They are the same code paths that GHC uses for its own `foreign export` mechanism. The difference is that Grasp uses them to implement a *language*, not just a function call.
+These are the same code paths that GHC uses for its own `foreign export` mechanism. The difference is that Grasp uses them to implement a *language*, not just a function call.
 
 ## Use cases
 
