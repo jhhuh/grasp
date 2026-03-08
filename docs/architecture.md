@@ -45,13 +45,13 @@ Defines two type layers:
 
 - **`GraspVal = Any`** — the evaluator's output. An untyped pointer to a GHC heap closure. Integers are real `I#` closures, booleans are `True`/`False` static closures, and Grasp-specific types (symbols, strings, cons cells, lambdas, primitives) use Haskell ADTs defined in `Grasp.NativeTypes`.
 
-- **`EnvData`** — contains `envBindings :: Map Text GraspVal` (symbol table), `envHsRegistry :: HsFuncRegistry` (registered Haskell functions with type metadata), and `envGhcSession :: IORef (Maybe Any)` (lazy-initialized GHC API session for dynamic lookup, stored as `Any` to avoid circular imports). `Env = IORef EnvData`. New bindings from `define` mutate `envBindings` in place. Lambda closures capture the `Env` reference, inheriting access to the registry and GHC session.
+- **`EnvData`** — contains `envBindings :: Map Text GraspVal` (symbol table), `envHsRegistry :: HsFuncRegistry` (registered Haskell functions with type metadata), `envGhcSession :: IORef (Maybe Any)` (lazy-initialized GHC API session for dynamic lookup, stored as `Any` to avoid circular imports), `envModules :: Map Text GraspVal` (cached loaded modules by name), and `envLoading :: [Text]` (circular dependency detection stack). `Env = IORef EnvData`. New bindings from `define` mutate `envBindings` in place. Lambda closures capture the `Env` reference, inheriting access to the registry, GHC session, and module cache.
 
 The two-type design keeps parsing pure and separates syntax from semantics.
 
 ### `Grasp.NativeTypes` — Value representation and type discrimination
 
-Defines the Grasp-specific ADTs (`GraspSym`, `GraspStr`, `GraspCons`, `GraspNil`, `GraspLambda`, `GraspPrim`, `GraspLazy`, `GraspMacro`, `GraspChan`) whose info tables GHC generates automatically. Provides:
+Defines the Grasp-specific ADTs (`GraspSym`, `GraspStr`, `GraspCons`, `GraspNil`, `GraspLambda`, `GraspPrim`, `GraspLazy`, `GraspMacro`, `GraspChan`, `GraspModule`) whose info tables GHC generates automatically. Provides:
 
 - **Type discrimination** — `graspTypeOf :: Any -> GraspType` reads the info-table address from a closure header via `unpackClosure#` and compares against cached reference addresses. Zero FFI overhead.
 - **Constructors** — `mkInt`, `mkBool`, `mkCons`, `mkLambda`, etc. wrap Haskell values as `Any` via `unsafeCoerce`.
@@ -79,7 +79,7 @@ Parser precedence in `pExpr`: `pBool | pStr | pQuote | pList | try pInt | pSym`.
 A tree-walking interpreter. `eval :: Env -> LispExpr -> IO GraspVal` pattern-matches on expression constructors:
 
 - **Atoms** — integers, doubles, strings, booleans evaluate to themselves (via `mkInt`, `mkBool`, etc.)
-- **Symbols** — looked up in the environment; error if unbound
+- **Symbols** — looked up in `envBindings`; if not found and contains `.`, splits on first dot and looks up module in `envModules` then export in module's export map; error if unbound
 - **`(quote e)`** — converts expression to value without evaluation
 - **`(if c t e)`** — evaluates condition (auto-forces lazy values); only `#f` is falsy
 - **`(define s e)`** — evaluates `e`, inserts binding into env
@@ -87,6 +87,8 @@ A tree-walking interpreter. `eval :: Env -> LispExpr -> IO GraspVal` pattern-mat
 - **`(lazy expr)`** — defers evaluation via `unsafeInterleaveIO`, wraps in `GraspLazy`
 - **`(force expr)`** — enters the lazy thunk via `forceIfLazy`; identity on non-lazy values
 - **`(defmacro name (params) body)`** — creates a `GraspMacro` and binds it in the environment
+- **`(module name (export sym...) body...)`** — creates a `GraspModule`: evaluates body in a child env, validates all exports are defined, stores module in `envModules`
+- **`(import name)` / `(import "path")`** — loads a `.gsp` file, parses it with `parseFile`, evaluates the `(module ...)` form, caches in `envModules`, detects circular dependencies via `envLoading`, binds exports both qualified (`mod.sym`) and unqualified
 - **`(f args...)`** — evaluates `f`; if macro, quotes args, runs body, converts result via `anyToExpr`, re-evals in caller's env; otherwise evaluates args and calls `apply`
 
 Concurrency primitives (`spawn`, `make-chan`, `chan-put`, `chan-get`) are registered in `defaultEnv` alongside arithmetic and list operations. `spawn` uses `forkIO` to create real GHC green threads. `apply` is exported so `spawn` can invoke it from the primitive.

@@ -262,6 +262,46 @@ then converted back to an expression and evaluated in the caller's environment.
 
 A macro value prints as `<macro>`.
 
+## Modules
+
+### `module`
+
+Defines a module with explicit exports:
+
+```lisp
+(module math
+  (export square cube)
+
+  (define square (lambda (x) (* x x)))
+  (define cube (lambda (x) (* x (square x))))
+  (define helper (lambda (x) (+ x 1)))  ; not exported
+)
+```
+
+The module body is evaluated in a fresh environment inheriting the caller's
+primitives. Only symbols listed in `(export ...)` are accessible from outside.
+A module value prints as `<module:name>`.
+
+### `import`
+
+Loads a module from a file:
+
+```lisp
+(import math)              ; loads math.gsp from current directory
+(import "./lib/utils.gsp") ; explicit path
+```
+
+Import binds all exported symbols both qualified and unqualified:
+
+```lisp
+(import math)
+(square 5)       ; => 25 (unqualified)
+(math.square 5)  ; => 25 (qualified)
+```
+
+Modules are cached after first load — importing the same module twice reuses
+the cached version. Circular dependencies are detected and produce an error.
+
 ## Concurrency
 
 Grasp provides green threads and channels for concurrent programming. Threads are real GHC green threads scheduled by GHC's native scheduler.
@@ -356,6 +396,7 @@ Every Grasp value is a `GraspVal` (alias for `Any` from `GHC.Exts`) — an untyp
 | `GraspLazy` | Lazy thunk | `<lazy>` |
 | `GraspMacro` | Macro | `<macro>` |
 | `GraspChan` | Channel | `<chan>` |
+| `GraspModule` | Module | `<module:name>` |
 
 GHC-equivalent types (Int, Double, Bool) reuse GHC's own closures — a Grasp integer IS a Haskell `Int`, with zero marshaling overhead. Grasp-specific types use Haskell ADTs whose info tables GHC generates automatically.
 
