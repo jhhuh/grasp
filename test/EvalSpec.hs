@@ -7,7 +7,7 @@ import qualified Data.Text.IO as TIO
 import Control.Concurrent (threadDelay)
 import Control.Exception (evaluate, try, SomeException)
 import Data.List (isInfixOf, isPrefixOf)
-import Data.IORef (readIORef)
+import Data.IORef (readIORef, modifyIORef')
 import qualified Data.Map.Strict as Map
 import System.Directory (removeFile)
 import Grasp.Types
@@ -465,6 +465,33 @@ spec = describe "Evaluator" $ do
       case result of
         Left e -> show e `shouldSatisfy` isInfixOf "circular"
         Right _ -> expectationFailure "should have thrown"
+
+    it "dot-qualified lookup works for modules defined inline" $ do
+      env <- defaultEnv
+      case parseLisp "(module m (export val) (define val 7))" of
+        Right expr -> do
+          _ <- eval env expr
+          case parseLisp "m.val" of
+            Right e -> do
+              val <- eval env e
+              printVal val `shouldBe` "7"
+            Left err -> error (show err)
+        Left err -> error (show err)
+
+    it "dot-qualified lookup falls back to envModules" $ do
+      env <- defaultEnv
+      case parseLisp "(module ns (export a) (define a 55))" of
+        Right expr -> do
+          _ <- eval env expr
+          -- Remove the flat binding to test the dot-split path
+          modifyIORef' env $ \ed -> ed
+            { envBindings = Map.delete "ns.a" (envBindings ed) }
+          case parseLisp "ns.a" of
+            Right e -> do
+              val <- eval env e
+              printVal val `shouldBe` "55"
+            Left err -> error (show err)
+        Left err -> error (show err)
 
     it "import by name looks for .gsp file" $ do
       TIO.writeFile "namemod.gsp"

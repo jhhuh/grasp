@@ -131,7 +131,16 @@ eval env (ESym s)  = do
   ed <- readIORef env
   case Map.lookup s (envBindings ed) of
     Just v  -> pure v
-    Nothing -> error $ "unbound symbol: " <> T.unpack s
+    Nothing
+      | Just (prefix, suffix) <- splitQualified s -> do
+          case Map.lookup prefix (envModules ed) of
+            Just modVal -> do
+              let exports = toModuleExports modVal
+              case Map.lookup suffix exports of
+                Just v  -> pure v
+                Nothing -> error $ "unbound symbol: " <> T.unpack s
+            Nothing -> error $ "unbound symbol: " <> T.unpack s
+      | otherwise -> error $ "unbound symbol: " <> T.unpack s
 eval _ (EList [ESym "quote", e]) = evalQuote e
 eval env (EList [ESym "if", cond, then_, else_]) = do
   c <- eval env cond
@@ -303,6 +312,14 @@ bindModuleExports env modName modVal = do
       qualifiedBindings = Map.mapKeys (\k -> modName <> "." <> k) exports
   modifyIORef' env $ \ed -> ed
     { envBindings = Map.union qualifiedBindings (Map.union exports (envBindings ed)) }
+
+-- | Split a qualified symbol on the first dot: "foo.bar" -> Just ("foo", "bar")
+splitQualified :: T.Text -> Maybe (T.Text, T.Text)
+splitQualified s = case T.break (== '.') s of
+  (prefix, rest)
+    | T.null rest -> Nothing           -- no dot
+    | T.null prefix -> Nothing         -- starts with dot
+    | otherwise -> Just (prefix, T.tail rest)  -- drop the dot
 
 evalQuote :: LispExpr -> IO GraspVal
 evalQuote (EInt n)    = pure $ mkInt (fromInteger n)
