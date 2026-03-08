@@ -8,7 +8,7 @@ import Control.Exception (evaluate, try, SomeException)
 import Data.List (isInfixOf)
 import Grasp.Types
 import Grasp.Eval (eval, defaultEnv, anyToExpr)
-import Grasp.Parser
+import Grasp.Parser (parseLisp, parseFile)
 import Grasp.Printer
 import Grasp.NativeTypes (graspTypeOf, GraspType(..), forceIfLazy, toInt, mkInt, mkSym, mkCons, mkNil, mkBool, mkStr)
 
@@ -360,4 +360,17 @@ spec = describe "Evaluator" $ do
         Right expr -> do
           val <- eval env expr
           printVal val `shouldBe` "3"
+        Left err -> error (show err)
+
+  describe "parseFile" $ do
+    it "parses multiple expressions" $ do
+      let input = "(define x 1)\n(define y 2)"
+      case parseFile (T.pack input) of
+        Right exprs -> length exprs `shouldBe` 2
+        Left err -> error (show err)
+
+    it "parses single expression" $ do
+      let input = "(module foo (export x) (define x 1))"
+      case parseFile (T.pack input) of
+        Right exprs -> length exprs `shouldBe` 1
         Left err -> error (show err)
