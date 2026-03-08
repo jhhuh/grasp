@@ -17,6 +17,7 @@ printVal v = case graspTypeOf v of
   GTPrim      -> "<primitive:" <> T.unpack (toPrimName v) <> ">"
   GTLazy      -> "<lazy>"
   GTMacro     -> "<macro>"
+  GTChan      -> "<chan>"
   GTCons      -> "(" <> printCons (toCar v) (toCdr v) <> ")"
 
 printCons :: Any -> Any -> String
