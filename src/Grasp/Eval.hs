@@ -139,6 +139,44 @@ applyOp [f, argList] = do
   apply f args
 applyOp _ = error "apply expects two arguments (function, arg-list)"
 
+-- | Try to match a runtime value against a pattern expression.
+-- Returns Just bindings on match, Nothing on no match.
+matchPattern :: Any -> LispExpr -> IO (Maybe (Map.Map T.Text Any))
+matchPattern _val (ESym "_") = pure (Just Map.empty)  -- wildcard
+matchPattern val (ESym name) = pure (Just (Map.singleton name val))  -- variable bind
+matchPattern val (EInt n) = do
+  v <- forceIfLazy val
+  if graspTypeOf v == GTInt && toInt v == fromInteger n
+    then pure (Just Map.empty)
+    else pure Nothing
+matchPattern val (EStr s) = do
+  v <- forceIfLazy val
+  if graspTypeOf v == GTStr && toStr v == s
+    then pure (Just Map.empty)
+    else pure Nothing
+matchPattern val (EBool b) = do
+  v <- forceIfLazy val
+  let expected = if b then GTBoolTrue else GTBoolFalse
+  if graspTypeOf v == expected
+    then pure (Just Map.empty)
+    else pure Nothing
+matchPattern val (EList []) = do  -- nil pattern
+  v <- forceIfLazy val
+  if isNil v then pure (Just Map.empty) else pure Nothing
+matchPattern val (EList [ESym "cons", hPat, tPat]) = do  -- cons destructuring
+  v <- forceIfLazy val
+  if isCons v then do
+    mh <- matchPattern (toCar v) hPat
+    case mh of
+      Nothing -> pure Nothing
+      Just hBinds -> do
+        mt <- matchPattern (toCdr v) tPat
+        case mt of
+          Nothing -> pure Nothing
+          Just tBinds -> pure (Just (Map.union hBinds tBinds))
+  else pure Nothing
+matchPattern _ _ = pure Nothing
+
 eval :: Env -> LispExpr -> IO GraspVal
 eval _ (EInt n)    = pure $ mkInt (fromInteger n)
 eval _ (EDouble d) = pure $ mkDouble d
@@ -359,6 +397,20 @@ eval env (EList [ESym "signal", valExpr]) = do
                 pure r
               _ -> error "restart expects one argument")
         apply handler [val, restart]
+-- match: structural pattern matching
+eval env (EList (ESym "match" : scrutinee : clauses)) = do
+  val <- eval env scrutinee
+  let tryMatch [] = error "match: no matching clause"
+      tryMatch (EList [pat, body] : rest) = do
+        result <- matchPattern val pat
+        case result of
+          Nothing -> tryMatch rest
+          Just bindings -> do
+            parentEd <- readIORef env
+            childEnv <- newIORef $ parentEd { envBindings = Map.union bindings (envBindings parentEd) }
+            eval childEnv body
+      tryMatch _ = error "match: each clause must be (pattern body)"
+  tryMatch clauses
 eval env (EList (fn : args)) = do
   f <- eval env fn
   f' <- forceIfLazy f

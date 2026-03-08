@@ -684,6 +684,40 @@ spec = describe "Evaluator" $ do
     it "range" $
       runPrelude ["(range 0 5)"] `shouldReturn` "(0 1 2 3 4)"
 
+  describe "match" $ do
+    it "matches integer literal" $
+      run "(match 1 (1 \"one\") (2 \"two\"))" `shouldReturn` "\"one\""
+
+    it "matches second clause" $
+      run "(match 2 (1 \"one\") (2 \"two\"))" `shouldReturn` "\"two\""
+
+    it "matches boolean" $
+      run "(match #t (#t \"yes\") (#f \"no\"))" `shouldReturn` "\"yes\""
+
+    it "matches nil" $
+      run "(match (list) (() \"empty\") (x \"not-empty\"))" `shouldReturn` "\"empty\""
+
+    it "matches cons destructuring" $
+      run "(match (list 1 2 3) ((cons h t) h))" `shouldReturn` "1"
+
+    it "matches cons tail" $
+      run "(match (list 1 2 3) ((cons h t) t))" `shouldReturn` "(2 3)"
+
+    it "matches wildcard" $
+      run "(match 42 (_ \"anything\"))" `shouldReturn` "\"anything\""
+
+    it "matches variable binding" $
+      run "(match 42 (x (+ x 1)))" `shouldReturn` "43"
+
+    it "errors on no match" $ do
+      result <- try (evaluate =<< run "(match 3 (1 \"one\") (2 \"two\"))") :: IO (Either SomeException String)
+      case result of
+        Left e -> show e `shouldSatisfy` ("no matching clause" `isInfixOf`)
+        Right _ -> expectationFailure "should have errored"
+
+    it "matches string literal" $
+      run "(match \"hi\" (\"hi\" \"greeting\") (x \"other\"))" `shouldReturn` "\"greeting\""
+
   describe "condition system" $ do
     it "with-handler returns body value on no signal" $
       run "(with-handler (lambda (c r) c) 42)" `shouldReturn` "42"
