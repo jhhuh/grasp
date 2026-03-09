@@ -144,6 +144,38 @@ spec = describe "Eval" $ do
       va <- eval env (ESym "a")
       printVal va `shouldBe` "10"
 
+  describe "let" $ do
+    it "binds local variables" $
+      evalPrint (EList [ESym "let",
+        EList [ESym "x", EInt 10, ESym "y", EInt 20],
+        EList [ESym "+", ESym "x", ESym "y"]])
+        `shouldReturn` "30"
+
+    it "sequential binding (later sees earlier)" $
+      evalPrint (EList [ESym "let",
+        EList [ESym "x", EInt 5, ESym "y", EList [ESym "+", ESym "x", EInt 1]],
+        ESym "y"])
+        `shouldReturn` "6"
+
+  describe "loop/recur" $ do
+    it "loops with recur" $
+      evalPrint (EList [ESym "loop",
+        EList [ESym "i", EInt 0, ESym "sum", EInt 0],
+        EList [ESym "if", EList [ESym "=", ESym "i", EInt 5],
+          ESym "sum",
+          EList [ESym "recur",
+            EList [ESym "+", ESym "i", EInt 1],
+            EList [ESym "+", ESym "sum", ESym "i"]]]])
+        `shouldReturn` "10"
+
+  describe "lazy/force" $ do
+    it "delays and forces evaluation" $ do
+      env <- defaultEnv
+      _ <- eval env (EList [ESym "define", ESym "x",
+              EList [ESym "lazy", EList [ESym "+", EInt 1, EInt 2]]])
+      val <- eval env (EList [ESym "force", ESym "x"])
+      printVal val `shouldBe` "3"
+
   describe "empty list" $ do
     it "evaluates () to nil" $
       evalPrint (EList []) `shouldReturn` "()"

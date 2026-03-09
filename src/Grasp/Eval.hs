@@ -11,6 +11,8 @@ import qualified Data.Text as T
 import qualified Data.Map.Strict as Map
 import GHC.Exts (Any)
 
+import System.IO.Unsafe (unsafeInterleaveIO)
+
 import Grasp.Types
 import Grasp.NativeTypes
 
@@ -117,6 +119,51 @@ eval env (EList (ESym "lambda" : EList params : body)) = do
 eval env (EList (ESym "begin" : exprs)) = case exprs of
   [] -> pure mkNil
   _  -> last <$> mapM (eval env) exprs
+eval env (EList (ESym "let" : EList bindings : body)) = do
+  childEnv <- readIORef env >>= newIORef
+  let go [] = pure ()
+      go (ESym name : expr : rest) = do
+        val <- eval childEnv expr
+        modifyIORef' childEnv $ \ed ->
+          ed { envBindings = Map.insert name val (envBindings ed) }
+        go rest
+      go _ = error "let: odd number of binding forms"
+  go bindings
+  let bodyExpr = case body of [e] -> e; es -> EList (ESym "begin" : es)
+  eval childEnv bodyExpr
+eval env (EList (ESym "loop" : EList bindings : body)) = do
+  childEnv <- readIORef env >>= newIORef
+  let pairs = goPairs bindings
+      names = map fst pairs
+      goPairs [] = []
+      goPairs (ESym n : e : rest) = (n, e) : goPairs rest
+      goPairs _ = error "loop: odd number of binding forms"
+  mapM_ (\(name, expr) -> do
+    val <- eval childEnv expr
+    modifyIORef' childEnv $ \ed ->
+      ed { envBindings = Map.insert name val (envBindings ed) }
+    ) pairs
+  let bodyExpr = case body of [e] -> e; es -> EList (ESym "begin" : es)
+      go = do
+        result <- eval childEnv bodyExpr
+        if graspTypeOf result == GTRecur
+          then do
+            let newVals = toRecurArgs result
+            modifyIORef' childEnv $ \ed ->
+              ed { envBindings = foldr (uncurry Map.insert) (envBindings ed)
+                                       (zip names newVals) }
+            go
+          else pure result
+  go
+eval env (EList (ESym "recur" : args)) = do
+  vals <- mapM (eval env) args
+  pure $ mkRecur vals
+eval env (EList [ESym "lazy", body]) = do
+  thunk <- unsafeInterleaveIO (eval env body)
+  pure $ mkLazy thunk
+eval env (EList [ESym "force", expr]) = do
+  val <- eval env expr
+  forceIfLazy val
 eval env (EList (fn : args)) = do
   f <- eval env fn
   f' <- forceIfLazy f
