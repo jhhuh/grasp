@@ -5,6 +5,8 @@ import Test.Hspec
 import Grasp.Types
 import Grasp.Eval
 import Grasp.Printer
+import Grasp.Parser (parseLisp)
+import qualified Data.Text as T
 
 -- | Helper: evaluate an expression in a fresh default environment, return printed result.
 evalPrint :: LispExpr -> IO String
@@ -12,6 +14,18 @@ evalPrint expr = do
   env <- defaultEnv
   val <- eval env expr
   pure (printVal val)
+
+-- | Parse a string, eval in given env, return printed result.
+run :: Env -> String -> IO String
+run env input = case parseLisp (T.pack input) of
+  Left err -> error (show err)
+  Right expr -> do
+    val <- eval env expr
+    pure (printVal val)
+
+-- | Run in a fresh env.
+runFresh :: String -> IO String
+runFresh input = defaultEnv >>= \env -> run env input
 
 spec :: Spec
 spec = describe "Eval" $ do
@@ -179,3 +193,33 @@ spec = describe "Eval" $ do
   describe "empty list" $ do
     it "evaluates () to nil" $
       evalPrint (EList []) `shouldReturn` "()"
+
+  describe "integration (parse + eval + print)" $ do
+    it "arithmetic" $
+      runFresh "(+ (* 3 4) 2)" `shouldReturn` "14"
+
+    it "lambda and application" $
+      runFresh "((lambda (x) (+ x 1)) 10)" `shouldReturn` "11"
+
+    it "recursive fibonacci via loop" $ do
+      env <- defaultEnv
+      _ <- run env "(define fib (lambda (n) (loop (i 0 a 0 b 1) (if (= i n) a (recur (+ i 1) b (+ a b))))))"
+      run env "(fib 10)" `shouldReturn` "55"
+
+    it "higher-order functions" $ do
+      env <- defaultEnv
+      _ <- run env "(define apply-twice (lambda (f x) (f (f x))))"
+      _ <- run env "(define inc (lambda (x) (+ x 1)))"
+      run env "(apply-twice inc 5)" `shouldReturn` "7"
+
+    it "list operations" $
+      runFresh "(car (cdr (list 1 2 3)))" `shouldReturn` "2"
+
+    it "nested let" $
+      runFresh "(let (x 10) (let (y (+ x 5)) (+ x y)))" `shouldReturn` "25"
+
+    it "quote and list structure" $
+      runFresh "(car '(a b c))" `shouldReturn` "a"
+
+    it "boolean logic" $
+      runFresh "(if (> 5 3) (if (< 1 2) 42 0) 0)" `shouldReturn` "42"
