@@ -285,3 +285,21 @@ spec = describe "Eval" $ do
       _ <- run env "(defmacro unless (test body) (list 'if test #f body))"
       run env "(unless #f 99)" `shouldReturn` "99"
       run env "(unless #t 99)" `shouldReturn` "#f"
+
+  describe "error handling" $ do
+    it "error raises an exception" $ do
+      env <- defaultEnv
+      run env "(error \"boom\")" `shouldThrow` anyErrorCall
+
+    it "error with non-string argument" $ do
+      env <- defaultEnv
+      run env "(error 42)" `shouldThrow` anyErrorCall
+
+  describe "display and newline" $ do
+    it "display returns nil" $ do
+      env <- defaultEnv
+      run env "(display 42)" `shouldReturn` "()"
+
+    it "newline returns nil" $ do
+      env <- defaultEnv
+      run env "(newline)" `shouldReturn` "()"

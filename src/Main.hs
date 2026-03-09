@@ -3,19 +3,25 @@ module Main (main) where
 
 import qualified Data.Text as T
 import System.Console.Isocline
+import System.Environment (getArgs)
 import Control.Exception (SomeException, catch)
 
 import Grasp.Parser (parseLisp)
-import Grasp.Eval (eval, defaultEnv, EvalMode(..))
+import Grasp.Eval (eval, evalFile, defaultEnv, EvalMode(..))
 import Grasp.Printer (printVal)
 import Grasp.Types (Env)
 
 main :: IO ()
 main = do
-  setHistory "grasp_history" 200
+  args <- getArgs
   env <- defaultEnv
-  putStrLn "grasp v2"
-  repl env
+  case args of
+    [file] -> evalFile ModeComputation env file
+    []     -> do
+      setHistory "grasp_history" 200
+      putStrLn "grasp v2"
+      repl env
+    _ -> putStrLn "usage: grasp [file.gsp]"
 
 repl :: Env -> IO ()
 repl env = do

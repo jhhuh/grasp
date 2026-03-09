@@ -4,6 +4,7 @@ module Grasp.Eval
   ( eval
   , apply
   , defaultEnv
+  , evalFile
   , EvalMode(..)
   ) where
 
@@ -22,6 +23,8 @@ import Control.Exception (SomeException, SomeAsyncException, catch, fromExceptio
 
 import Grasp.Types
 import Grasp.NativeTypes
+import Grasp.Printer (printVal)
+import Grasp.Parser (parseFile)
 
 -- ─── CBPV Eval Modes ──────────────────────────────────────
 
@@ -55,6 +58,9 @@ defaultEnv = do
         , ("make-chan",   mkPrim "make-chan"   makeChanOp)
         , ("chan-put",    mkPrim "chan-put"    chanPutOp)
         , ("chan-get",    mkPrim "chan-get"    chanGetOp)
+        , ("error",      mkPrim "error"      errorOp)
+        , ("display",    mkPrim "display"    displayOp)
+        , ("newline",    mkPrim "newline"    newlineOp)
         ]
     , envHsRegistry = Map.empty
     , envGhcSession = ghcRef
@@ -144,6 +150,27 @@ chanPutOp _ = error "chan-put expects two arguments"
 chanGetOp :: [Any] -> IO Any
 chanGetOp [ch] = readChan (toChan ch)
 chanGetOp _ = error "chan-get expects one argument"
+
+errorOp :: [Any] -> IO Any
+errorOp [msg] = error (printVal msg)
+errorOp _ = error "error expects one argument"
+
+displayOp :: [Any] -> IO Any
+displayOp [v] = putStr (printVal v) >> pure mkNil
+displayOp _ = error "display expects one argument"
+
+newlineOp :: [Any] -> IO Any
+newlineOp [] = putStrLn "" >> pure mkNil
+newlineOp _ = error "newline expects no arguments"
+
+-- ─── File Loading ───────────────────────────────────────────
+
+evalFile :: EvalMode -> Env -> FilePath -> IO ()
+evalFile mode env path = do
+  contents <- readFile path
+  case parseFile (T.pack contents) of
+    Left err -> error $ "parse error in " <> path <> ": " <> show err
+    Right exprs -> mapM_ (eval mode env) exprs
 
 -- ─── Evaluator ──────────────────────────────────────────────
 
