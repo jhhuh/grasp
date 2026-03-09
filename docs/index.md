@@ -1,33 +1,25 @@
 # Grasp
 
-**A Lisp that grasps the G-machine.**
+**A programmable interface to the GHC RTS.**
 
-Grasp is a dynamic, untyped Lisp that lives directly on GHC's runtime system — the Spineless Tagless G-machine (STG). Its values are native STG closures on GHC's heap, traced by GHC's generational GC, and evaluated through the RTS C API.
+Grasp is a dynamic language whose values, closures, and thunks are native GHC RTS objects. It is not "a Lisp implemented in Haskell" — it is a scriptable layer inside the GHC runtime system. From Haskell's perspective, Grasp is the part of the RTS you can script. From Grasp's perspective, it is a dynamic language with the full power of the GHC runtime beneath it.
 
-## What is this?
+Formal foundations: Call-by-Push-Value (CBPV), gradual typing (Siek & Taha), Henglein coercions. Compilation has a precise meaning: resolving `?` to concrete types, eliminating interpreter dispatch.
 
-Grasp explores a question that hasn't been seriously attempted before: **can a dynamic language inhabit the STG machine as a native tenant, not a foreign guest?**
-
-Most hosted languages (Clojure on JVM, Fennel on Lua) target runtimes that were *designed* to host other languages. The JVM has bytecode, classloaders, and reflection. Lua has a simple stack-based VM with a clean C API. GHC's STG machine was designed for exactly one language: Haskell. It has no official "guest language" story.
-
-And yet, the STG machine is extraordinarily capable. It provides:
-
-- **A generational, parallel garbage collector** that can handle millions of short-lived allocations
-- **Lightweight green threads** with M:N scheduling (thousands of threads on a few OS threads)
-- **Software transactional memory** (STM) for lock-free concurrent data structures
-- **An efficient closure representation** with info tables, pointer tagging, and thunk update
-- **A stable C API** (`rts_mkInt`, `rts_apply`, `rts_eval`) for constructing and evaluating closures
-
-Grasp reaches into this machinery and builds a Lisp on top of it.
-
-## How to read these docs
+## Documentation
 
 | Document | What it covers |
 |----------|---------------|
-| [Motivation](motivation.md) | Why this project exists, what it's trying to prove |
-| [Language Reference](language.md) | The Lisp dialect: syntax, special forms, primitives |
-| [Architecture](architecture.md) | How Grasp works: parser, evaluator, C bridge, RTS integration |
+| [Motivation](motivation.md) | Why Grasp exists and the v2 vision |
+| [Language Reference](language.md) | Syntax, special forms, primitives, evaluation model |
+| [Architecture](architecture.md) | Parser, evaluator, RTS bridge, module layout |
 | [The STG Machine](stg-machine.md) | The runtime substrate: closures, info tables, evaluation, GC |
-| [Delimited Continuations](delimited-continuations.md) | Theory, GHC RTS implementation, and Grasp's condition system |
-| [Related Work](related-work.md) | How Grasp compares to Clojure, GHCi, Husk Scheme, etc. |
-| [Roadmap](roadmap.md) | Project history and future directions |
+| [Delimited Continuations](delimited-continuations.md) | Theory and GHC RTS implementation |
+| [Related Work](related-work.md) | Comparison with Clojure, GHCi, Husk Scheme, etc. |
+| [Roadmap](roadmap.md) | v1 history, v2 status, future directions |
+
+## Design Documents
+
+| Document | What it covers |
+|----------|---------------|
+| [v2 Foundations](plans/2026-03-09-grasp-v2-foundations-design.md) | CBPV, gradual typing, RTS citizenship levels, dual interface |

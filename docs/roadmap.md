@@ -1,191 +1,78 @@
 # Roadmap
 
-Grasp's MVP demonstrates that a dynamic Lisp can construct closures on GHC's heap and evaluate them through the STG machine. This page outlines where the project goes from here.
+## v1 History (archived)
 
-## Current Status: Phase 8 Complete (Conditions, Pattern Matching, REPL, Debugging)
+v1 explored whether a dynamic Lisp could inhabit the STG machine as a native tenant. It proved the concept across 8 phases:
 
-What works:
-- S-expression parser (integers, strings, booleans, symbols, lists, quoting)
-- Tree-walking evaluator (define, lambda, if, quote, begin, let, loop/recur, match, closures)
-- 22 built-in primitives (arithmetic, comparison, list operations, apply, debugging)
-- **Native GHC closures** — every runtime value is a real `StgClosure` on the GHC heap (`GraspVal = Any`)
-- **Type discrimination via `unpackClosure#`** — reads info-table addresses with zero FFI overhead
-- C bridge to GHC RTS (`rts_apply`, `rts_mkInt`, `rts_getInt`)
-- **`hs:` syntax** for calling any Haskell function: `(hs:Data.List.sort (list 3 1 2))` → `(1 2 3)`
-- **`hs@` syntax** for annotated polymorphic functions: `(hs@ "reverse :: [Int] -> [Int]" (list 1 2 3))`
-- **Dynamic GHC API lookup** — auto-infers types for monomorphic functions, caches compiled closures
-- **Type-safe function registry** with arity and type validation at the Grasp-Haskell boundary
-- **Safe evaluation** — Haskell exceptions are caught, not process-aborting
-- **`(lazy expr)` / `(force x)`** — opt-in laziness via real GHC THUNK closures with automatic memoization
-- **Auto-forcing** — lazy values are transparently forced at primitive, interop, and control flow boundaries
-- Legacy `haskell-call` backward compatibility
-- **isocline REPL** — line editing, persistent history, tab completion of env bindings
-- **`defmacro`** — user-defined macros that receive unevaluated arguments as quoted data, return code for re-evaluation
-- **`spawn`** — green threads via `forkIO`, channels via `Chan` for inter-thread communication
-- **`module` / `import`** — file-based module system with qualified access, caching, and circular dependency detection
-- **`begin` / `let`** — sequential evaluation and sequential let-bindings with implicit begin
-- **Multi-expression lambda** — lambda bodies support multiple expressions via implicit begin
-- **`loop` / `recur`** — Clojure-style explicit tail recursion with `GraspRecur` sentinel
-- **`with-handler` / `signal`** — delimited-continuation condition system using GHC's `prompt#`/`control0#`
-- **`match`** — structural pattern matching with literal, cons, nil, wildcard, and variable patterns
-- **`apply`** — call a function with a list of arguments
-- **`type-of` / `inspect` / `gc-stats`** — runtime introspection and GC statistics
-- **File execution** — `cabal run grasp -- file.gsp` runs a script, prints the last result
-- **Standard library** — `lib/prelude.gsp` with map, filter, fold, try, catch, etc.
-- ~223 tests passing
+1. **Native STG closures** -- `GraspVal = Any`, info-pointer type discrimination
+2. **Dynamic function lookup** -- GHC API, `hs:` prefix, `hs@` annotated form
+3. **Opt-in laziness** -- real GHC THUNKs via `unsafeInterleaveIO`
+4. **Concurrency** -- `forkIO` green threads, `Chan` channels
+5. **Macro system** -- `defmacro` with quoted arguments
+6. **Module system** -- `module`/`import` with qualified access
+7. **Control flow & standard library** -- `begin`, `let`, `loop`/`recur`, `lib/prelude.gsp`
+8. **Conditions, pattern matching, REPL, debugging** -- delimited continuations, `match`, isocline REPL, `type-of`/`inspect`/`gc-stats`
 
-What the project proves: a dynamic Lisp can inhabit GHC's heap as a native tenant, call arbitrary Haskell functions, and create real GHC thunks with standard update semantics. Grasp integers ARE `I#` closures, lazy values ARE GHC THUNKs, and the RTS's own evaluation machinery forces them.
+v1 reached 223 tests and proved the fundamental thesis. It used a C bridge (`rts_apply`/`rts_mkInt`/`rts_eval`) for Haskell function calls and had modules like `DynLookup`, `DynDispatch`, `HsRegistry`, `HaskellInterop`, and `Continuations`. v1 source is preserved in `v1/`.
 
-## Phase 1: Native STG Closures ✓
+## v2 Current Status
 
-**Status**: Complete.
+v2 is a clean reboot. The vision shifted from "a Lisp on GHC" to "a programmable interface to the GHC RTS" grounded in formal theory (CBPV, gradual typing, Henglein coercions).
 
-Grasp values ARE STG closures. `GraspVal = Any` from `GHC.Exts` — every runtime value is an untyped pointer to a GHC heap closure:
+What changed from v1:
+- **No C bridge for function calls.** v1 routed Haskell function calls through C FFI (`rts_apply`, `rts_eval`). v2 calls Haskell directly -- the evaluator is Haskell, no round-trip needed. The only remaining C code reads `StgInfoTable.type` for closure inspection.
+- **CBPV-aware evaluator.** Two modes: `ModeComputation` (full IO) and `ModeTransaction` (STM only, entered via `atomically`). IO-only primitives are rejected in transaction mode.
+- **STM as first-class.** `make-tvar`, `read-tvar`, `write-tvar`, `atomically` -- transactions compose, IO cannot enter.
+- **Simplified module set.** 8 source modules (Types, NativeTypes, RuntimeCheck, RtsBridge, Parser, Eval, Printer, Main) vs v1's 12+.
+- **QuasiQuoter scaffolding.** `EQuoter`/`EAntiquote` AST nodes in the parser types for future QQ support.
 
-- GHC-equivalent types (Int, Double, Bool) reuse GHC's own closures directly
-- Grasp-specific types (Sym, Str, Cons, Nil, Lambda, Prim) use Haskell ADTs whose info tables GHC generates automatically
-- Type discrimination via `unpackClosure#` reading info-table addresses (no FFI round-trip)
-- Integer precision changed from arbitrary (`Integer`) to 64-bit fixed-width (`Int`)
+What works now:
+- S-expression parser (integers, doubles, strings, booleans, symbols, lists, quoting)
+- CBPV-aware tree-walking evaluator
+- 22 built-in primitives (arithmetic, comparison, list ops, STM, concurrency, IO)
+- Special forms: `quote`, `if`, `define`, `lambda`, `begin`, `let`, `loop`/`recur`, `lazy`/`force`, `atomically`, `defmacro`
+- 18 native types with info-pointer discrimination
+- isocline REPL with history
+- File execution (`cabal run grasp -- file.gsp`)
+- ~130 tests passing
 
-The approach uses Haskell ADTs instead of hand-written C info tables, avoiding `TABLES_NEXT_TO_CODE` complexity while achieving the same goal: Grasp values are genuine GHC heap objects traced by the GC with zero marshaling overhead for Haskell interop.
+## v2 Next Steps
 
-## Phase 2: Dynamic Function Lookup ✓
+### Feature parity sprint
 
-**Status**: Complete.
+Restore v1 features on the v2 architecture:
 
-Any Haskell function can be called by name at runtime via the GHC API:
+- **Prelude** -- `lib/prelude.gsp` with map, filter, fold, etc. (v1 had this)
+- **GHC API integration** -- Dynamic Haskell function lookup. v2 does this in pure Haskell (no C bridge), but the GHC API session and dispatch logic need to be rebuilt.
+- **Pattern matching** -- `(match expr (pattern body) ...)` with literal, cons, nil, wildcard, and variable patterns
+- **Condition system** -- `with-handler`/`signal` via delimited continuations (`prompt#`/`control0#`)
+- **Module system** -- `module`/`import` with qualified access and caching
 
-- **`hs:` prefix** checks the static registry first (zero overhead), then falls back to GHC API lookup
-- **`hs@` form** handles polymorphic functions with explicit type annotations
-- The GHC API session is lazy-initialized on first dynamic lookup
-- Compiled closures and type info are cached after first call
-- Automatic type inference via `exprType` for monomorphic functions
-- Grasp↔Haskell marshaling for lists and strings
-- Re-boxing of bytecode interpreter values to match statically compiled info tables
+### RTS deepening
 
-```lisp
-(hs:Data.List.sort (list 3 1 2))  ; => (1 2 3)
-(hs:abs -5)                       ; => 5
-(hs@ "reverse :: [Int] -> [Int]" (list 1 2 3))  ; => (3 2 1)
-```
+Move up the RTS citizenship levels:
 
-## Phase 3: Opt-in Laziness ✓
+- **Level 1 -- Raw closure allocation**: Allocate heap objects with controlled payload layouts. Know which fields are pointers vs non-pointers. Use existing Haskell info tables.
+- **Level 2 -- Custom info tables**: Create info tables at runtime with custom GC layout bitmaps and entry code pointers. GHC's GC traces them natively. This is the target for v2.
 
-**Status**: Complete.
+### Gradual typing
 
-`(lazy expr)` creates a real GHC THUNK closure via `unsafeInterleaveIO`. The thunk participates in GHC's standard update mechanism: first force evaluates and replaces the thunk with an indirection (IND); subsequent accesses return the cached value instantly.
+Introduce optional type annotations:
 
-```lisp
-(define x (lazy (+ 1 2)))  ; x is a THUNK, not 3
-(force x)                   ; => 3 (evaluated, result cached)
-(+ (lazy 10) (lazy 20))    ; => 30 (auto-forced at primitive boundary)
-(hs:succ (lazy 41))         ; => 42 (auto-forced at interop boundary)
-```
+- **Flow typing**: After `(int? x)` succeeds in a branch, the compiler knows `x : Int` and can compile that branch to primops.
+- **Contracts**: Types as predicates -- runtime-checked, erased when provable. `(-> positive? int?)` wraps a function with entry/exit checks.
+- **Henglein coercion reduction**: Eliminate redundant `tag`/`check` pairs at boundaries.
 
-The `GraspLazy` ADT wrapper provides type discrimination via the info-pointer cache. Lazy values are transparent at all boundaries — primitives, `if`, `=`, and Haskell interop auto-force before operating.
+## Future Vision
 
-## Phase 4: Concurrency ✓
+### QuasiQuoter
 
-**Status**: Complete.
+`[grasp| ... |]` in Haskell source. Types inferred from the surrounding Haskell context. Grasp code compiled to native closures at Haskell compile time. The QQ is a compiler from Grasp to STG.
 
-`(spawn fn)` forks a green thread via `forkIO`. Channels (`make-chan`, `chan-put`, `chan-get`) provide blocking inter-thread communication. Spawned threads are real GHC green threads scheduled by the same scheduler that runs Haskell threads. They share the same heap and GC.
+### JIT Compilation
 
-```lisp
-(define ch (make-chan))
-(spawn (lambda () (chan-put ch (* 6 7))))
-(chan-get ch)  ; => 42
-```
+Level 3 RTS citizenship: emit machine code for closure entry. A compiled Grasp lambda is a closure whose entry code runs generated native instructions calling primops directly. No interpreter dispatch.
 
-Threads are fire-and-forget — exceptions are silently caught. STM/TVar support is deferred to future work.
+### RTS Extension
 
-## Phase 5: Macro System ✓
-
-**Status**: Complete.
-
-`(defmacro name (params) body)` defines user macros that receive unevaluated arguments as quoted runtime values. The macro body runs in the macro's closure environment, and the result is converted back to a `LispExpr` via `anyToExpr` and re-evaluated in the caller's environment.
-
-```lisp
-(defmacro when (cond body)
-  (list 'if cond body '()))
-
-(when (> x 0) (print "positive"))
-; expands to: (if (> x 0) (print "positive") ())
-```
-
-Macros compose naturally — a macro can expand into another macro call, which is expanded during eval. The `GraspMacro` ADT mirrors `GraspLambda` and uses the same info-pointer type discrimination.
-
-## Phase 6: Module System ✓
-
-**Status**: Complete.
-
-`(module name (export sym...) body...)` defines modules with explicit exports. `(import name)` loads module files (`.gsp`) with caching and circular dependency detection. Qualified access via dot notation (`math.square`) splits symbols at eval time.
-
-```lisp
-;; math.gsp
-(module math
-  (export square cube)
-  (define square (lambda (x) (* x x)))
-  (define cube (lambda (x) (* x (square x)))))
-```
-
-```lisp
-(import math)
-(square 5)       ; => 25
-(math.square 5)  ; => 25 (qualified)
-```
-
-Modules evaluate their bodies in a child environment inheriting primitives. Only exported symbols are accessible. Import binds exports both qualified and unqualified. The `GraspModule` ADT uses the same info-pointer type discrimination as all other Grasp types.
-
-## Phase 7: Control Flow & Standard Library ✓
-
-**Status**: Complete (2026-03-08). ~196 tests.
-
-Added essential control flow constructs and a standard library:
-
-- **`begin`** — `(begin e1 e2 ... en)` evaluates forms sequentially, returns the last result. `(begin)` returns nil.
-- **`let`** — `(let ((x 1) (y 2)) body...)` creates sequential bindings (like Scheme's `let*`). Later bindings can reference earlier ones. Body uses implicit begin.
-- **Multi-expression lambda** — `(lambda (params) e1 e2 ... en)` wraps multiple body forms in an implicit `begin`.
-- **`loop` / `recur`** — Clojure-style explicit tail recursion. `loop` establishes bindings and a restart point; `recur` re-binds and jumps back. Implemented via the `GraspRecur` sentinel ADT — `recur` returns a `GraspRecur` value, and `loop`'s iteration checks for `GTRecur` to decide whether to re-bind and continue or return.
-- **File execution** — `cabal run grasp -- file.gsp` parses and evaluates a `.gsp` file, printing the last result. Dispatched via `getArgs` in `Main.hs`.
-- **Standard library** — `lib/prelude.gsp` provides common list utilities (map, filter, fold, length, append, etc.) implemented in Grasp itself using `loop`/`recur`.
-
-```lisp
-(loop ((i 0) (sum 0))
-  (if (> i 10)
-    sum
-    (recur (+ i 1) (+ sum i))))   ; => 55
-```
-
-## Phase 8: Conditions, Pattern Matching, REPL, Debugging ✓
-
-**Status**: Complete (2026-03-08). ~223 tests.
-
-Four feature areas that deepen Grasp as a language and showcase the STG machine:
-
-- **Condition system** — `(with-handler handler body)` and `(signal value)` using GHC's delimited continuation primops (`prompt#`, `control0#`). The handler receives the signaled value and a restart function. Calling restart resumes from the signal point; returning without restart abandons the body. Haskell exceptions (`error`) are also caught and forwarded to the handler.
-- **Pattern matching** — `(match expr (pattern body) ...)` with integer/string/boolean literals, nil `()`, cons destructuring `(cons h t)`, wildcard `_`, and variable binding. Clauses are tried top-to-bottom.
-- **`apply`** — `(apply f (list 1 2 3))` calls a function with arguments from a list.
-- **isocline REPL** — line editing, persistent history (`.grasp_history`), tab completion of env bindings. Replaces the raw `getLine` REPL.
-- **Debugging primitives** — `(type-of x)` returns the type name, `(inspect x)` returns closure payload info via `unpackClosure#`, `(gc-stats)` reads `GHC.Stats.getRTSStats`.
-- **Prelude additions** — `try` and `catch` as condition system wrappers.
-
-```lisp
-;; Condition system
-(with-handler
-  (lambda (c r) (r 0))           ; restart with 0
-  (+ 1 (signal 'division-by-zero)))  ; => 1
-
-;; Pattern matching
-(match (list 1 2 3)
-  (() "empty")
-  ((cons h t) h))               ; => 1
-```
-
-## Future Possibilities
-
-These are more speculative directions:
-
-- **JIT compilation**: Compile hot Grasp functions to native code through GHC's code generator
-- **Type annotations**: Optional type hints that generate STG closures matching Haskell types
-- **Package integration**: Load compiled Haskell packages (`.hi` + `.o` files) and call their functions
-- **Editor integration**: SLIME/CIDER-style interactive development with an Emacs or VS Code extension
+Level 4 (far horizon): custom GC behavior per closure type. Custom scavenging, evacuation, promotion policies. Grasp as a programmable GC policy language.

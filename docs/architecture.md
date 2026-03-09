@@ -1,6 +1,6 @@
 # Architecture
 
-Grasp is structured as a pipeline: **parser → evaluator → printer**, with a **C bridge** connecting the evaluator to GHC's runtime system.
+Grasp v2 is structured as a pipeline: **parser -> evaluator -> printer**, with a minimal C bridge for closure type inspection.
 
 ```
 ┌──────────────────────────────────────────────┐
@@ -10,20 +10,16 @@ Grasp is structured as a pipeline: **parser → evaluator → printer**, with a 
        │               │               │
   ┌────▼────┐   ┌──────▼──────┐  ┌─────▼─────┐
   │ Parser  │   │  Evaluator  │  │  Printer  │
-  │ (Mega-  │   │  (Haskell)  │  │           │
-  │ parsec) │   └──────┬──────┘  └───────────┘
-  └─────────┘          │
-                 ┌─────▼──────┐
-                 │  Haskell   │
-                 │  Interop   │
-                 └─────┬──────┘
-                       │ StablePtr + FFI
+  │ (Mega-  │   │ (CBPV-aware │  │ (info-ptr │
+  │ parsec) │   │  tree-walk) │  │  dispatch) │
+  └─────────┘   └──────┬──────┘  └───────────┘
+                       │
                  ┌─────▼──────┐
                  │  C Bridge  │
-                 │ (rts_bridge │
-                 │    .c/.h)  │
+                 │ (closure   │
+                 │  type only)│
                  └─────┬──────┘
-                       │ rts_apply, rts_eval
+                       │ unpackClosure# + StgInfoTable.type
                  ┌─────▼──────┐
                  │  GHC RTS   │
                  │ (STG heap, │
@@ -31,231 +27,136 @@ Grasp is structured as a pipeline: **parser → evaluator → printer**, with a 
                  └────────────┘
 ```
 
+v2 eliminates the C bridge for function calls. v1 used `rts_apply`/`rts_mkInt`/`rts_eval` through C FFI to call Haskell functions. v2 calls Haskell functions directly — the evaluator is Haskell, so no FFI round-trip is needed. The only remaining C code (`cbits/rts_bridge.c`) reads the `StgInfoTable.type` field from an info pointer for closure type inspection.
+
 ## Modules
 
-### `Main.hs` — Entry point (REPL and file execution)
+### `Main.hs` -- Entry point
 
-Dispatches on `getArgs`: with no arguments, starts the interactive REPL (read-eval-print loop). With a single file argument (`cabal run grasp -- file.gsp`), reads the file, parses it with `parseFile`, evaluates all top-level expressions sequentially, and prints the last result. Handles `(quit)` and EOF (Ctrl-D) in REPL mode. Catches all exceptions with `SomeException` to prevent crashes.
+REPL or file execution. With no arguments, starts the isocline REPL (`readlineExMaybe` with history and line editing). With a file argument, parses and evaluates the file. Dispatches eval with `ModeComputation` (unrestricted IO).
 
-### `Grasp.Types` — Core type definitions
+### `Grasp.Types` -- Core type definitions
 
-Defines two type layers:
+Two type layers:
 
-- **`LispExpr`** — the parser's output. A plain algebraic data type representing S-expression syntax: `EInt`, `EDouble`, `ESym`, `EStr`, `EBool`, `EList`. No closures, no environments — just syntax.
+- **`LispExpr`** -- the parser's output. A plain ADT representing S-expression syntax: `EInt`, `EDouble`, `ESym`, `EStr`, `EBool`, `EList`, plus `EQuoter`/`EAntiquote` for future QuasiQuoter support.
 
-- **`GraspVal = Any`** — the evaluator's output. An untyped pointer to a GHC heap closure. Integers are real `I#` closures, booleans are `True`/`False` static closures, and Grasp-specific types (symbols, strings, cons cells, lambdas, primitives) use Haskell ADTs defined in `Grasp.NativeTypes`.
+- **`GraspVal = Any`** -- the evaluator's output. An untyped pointer to a GHC heap closure. Integers are real `I#` closures, booleans are `True`/`False` static closures. Grasp-specific types use Haskell ADTs from `NativeTypes`.
 
-- **`EnvData`** — contains `envBindings :: Map Text GraspVal` (symbol table), `envHsRegistry :: HsFuncRegistry` (registered Haskell functions with type metadata), `envGhcSession :: IORef (Maybe Any)` (lazy-initialized GHC API session for dynamic lookup, stored as `Any` to avoid circular imports), `envModules :: Map Text GraspVal` (cached loaded modules by name), and `envLoading :: [Text]` (circular dependency detection stack). `Env = IORef EnvData`. New bindings from `define` mutate `envBindings` in place. Lambda closures capture the `Env` reference, inheriting access to the registry, GHC session, and module cache.
+- **`EnvData`** -- `envBindings` (symbol table), `envHsRegistry` (Haskell function registry, currently empty in v2), `envGhcSession` (reserved for future GHC API use), `envModules` (cached modules), `envLoading` (circular dependency detection). `Env = IORef EnvData`.
 
-The two-type design keeps parsing pure and separates syntax from semantics.
+### `Grasp.NativeTypes` -- Value representation and type discrimination
 
-### `Grasp.NativeTypes` — Value representation and type discrimination
+Defines 14 Grasp-specific ADTs whose info tables GHC generates automatically:
 
-Defines the Grasp-specific ADTs (`GraspSym`, `GraspStr`, `GraspCons`, `GraspNil`, `GraspLambda`, `GraspPrim`, `GraspLazy`, `GraspMacro`, `GraspChan`, `GraspModule`, `GraspRecur`) whose info tables GHC generates automatically. Provides:
+`GraspSym`, `GraspStr`, `GraspCons`, `GraspNil`, `GraspLambda`, `GraspPrim`, `GraspLazy`, `GraspMacro`, `GraspChan`, `GraspModule`, `GraspRecur`, `GraspPromptTag`, `GraspTVar`.
 
-- **Type discrimination** — `graspTypeOf :: Any -> GraspType` reads the info-table address from a closure header via `unpackClosure#` and compares against cached reference addresses. Zero FFI overhead.
-- **Constructors** — `mkInt`, `mkBool`, `mkCons`, `mkLambda`, etc. wrap Haskell values as `Any` via `unsafeCoerce`.
-- **Extractors** — `toInt`, `toCar`, `toLambdaParts`, etc. unwrap `Any` back to concrete types.
-- **Equality** — `graspEq` performs structural equality with recursive cons comparison, auto-forcing lazy values.
-- **Laziness** — `mkLazy`, `forceLazy`, `forceIfLazy` create and enter GHC THUNKs via `unsafeInterleaveIO`.
+Provides:
 
-### `Grasp.Parser` — S-expression parser
+- **Type discrimination** -- `graspTypeOf :: Any -> GraspType` reads the info-table address from a closure header via `unpackClosure#` and compares against cached reference addresses. Uses `RuntimeCheck.readRepTag` under the hood.
+- **Constructors** -- `mkInt`, `mkBool`, `mkCons`, `mkLambda`, `mkTVar`, etc. wrap Haskell values as `Any` via `unsafeCoerce`.
+- **Extractors** -- `toInt`, `toCar`, `toLambdaParts`, `toTVar`, etc. unwrap `Any` back to concrete types.
+- **Equality** -- `graspEq` performs structural equality with recursive cons comparison and lazy auto-forcing.
+- **Laziness** -- `mkLazy`, `forceLazy`, `forceIfLazy` for GHC THUNK creation and entry.
 
-Built with [megaparsec](https://hackage.haskell.org/package/megaparsec). Handles:
+### `Grasp.RuntimeCheck` -- Low-level closure inspection
 
-- **Integers** — `L.signed (pure ()) L.decimal`. The `pure ()` is important: `empty` (the Alternative failure) would make the parser reject negative numbers. `pure ()` consumes nothing, allowing the sign to parse.
-- **Doubles** — not yet parsed (planned)
-- **Strings** — `"..."` with `L.charLiteral` for escape sequences
-- **Booleans** — `#t` and `#f`
-- **Symbols** — any sequence of non-reserved characters
-- **Lists** — `(...)` containing zero or more expressions
-- **Quote** — `'expr` desugars to `(quote expr)` in the parser
-- **Comments** — `;` to end of line
+Reads info-table pointers via `unpackClosure#` and closure type via the C bridge. `RepTag` bundles the info pointer (type identity) with the closure type category (CONSTR, FUN, THUNK, etc.). `getInfoPtr` forces to WHNF with `seq` before reading.
 
-Parser precedence in `pExpr`: `pBool | pStr | pQuote | pList | try pInt | pSym`. The `try` on `pInt` is needed because `-foo` should parse as a symbol, not a failed negative number.
+### `Grasp.RtsBridge` -- FFI binding
 
-### `Grasp.Eval` — Core evaluator
+Single FFI import: `graspClosureType :: Ptr () -> IO Word`. Reads `StgInfoTable.type` from an info pointer. This is the only remaining C FFI in v2.
 
-A tree-walking interpreter. `eval :: Env -> LispExpr -> IO GraspVal` pattern-matches on expression constructors:
+### `Grasp.Parser` -- S-expression parser
 
-- **Atoms** — integers, doubles, strings, booleans evaluate to themselves (via `mkInt`, `mkBool`, etc.)
-- **Symbols** — looked up in `envBindings`; if not found and contains `.`, splits on first dot and looks up module in `envModules` then export in module's export map; error if unbound
-- **`(quote e)`** — converts expression to value without evaluation
-- **`(if c t e)`** — evaluates condition (auto-forces lazy values); only `#f` is falsy
-- **`(define s e)`** — evaluates `e`, inserts binding into env
-- **`(lambda (params) body)`** — creates a `GraspLambda` closure capturing current env
-- **`(lazy expr)`** — defers evaluation via `unsafeInterleaveIO`, wraps in `GraspLazy`
-- **`(force expr)`** — enters the lazy thunk via `forceIfLazy`; identity on non-lazy values
-- **`(defmacro name (params) body)`** — creates a `GraspMacro` and binds it in the environment
-- **`(begin e1 ... en)`** — evaluates forms sequentially, returns the last result; `(begin)` returns nil
-- **`(let ((x v) ...) body...)`** — creates a child environment, binds sequentially (each binding sees earlier ones), evaluates body with begin semantics
-- **`(loop ((var init) ...) body...)`** — establishes bindings and a restart point; evaluates body, and if the result is a `GraspRecur` sentinel (`GTRecur`), re-binds loop variables with the recur arguments and iterates
-- **`(recur val...)`** — evaluates arguments and wraps them in a `GraspRecur` sentinel; only meaningful inside `loop`
-- **`(module name (export sym...) body...)`** — creates a `GraspModule`: evaluates body in a child env, validates all exports are defined, stores module in `envModules`
-- **`(import name)` / `(import "path")`** — loads a `.gsp` file, parses it with `parseFile`, evaluates the `(module ...)` form, caches in `envModules`, detects circular dependencies via `envLoading`, binds exports both qualified (`mod.sym`) and unqualified
-- **`(f args...)`** — evaluates `f`; if macro, quotes args, runs body, converts result via `anyToExpr`, re-evals in caller's env; otherwise evaluates args and calls `apply`
+Built with megaparsec. Handles integers, doubles, strings, booleans (`#t`/`#f`), symbols, lists, quote (`'expr` -> `(quote expr)`), and line comments (`;`). Parser precedence: `pBool | pStr | pQuote | pList | try pDouble | try pInt | pSym`.
 
-Concurrency primitives (`spawn`, `make-chan`, `chan-put`, `chan-get`) are registered in `defaultEnv` alongside arithmetic and list operations. `spawn` uses `forkIO` to create real GHC green threads. `apply` is exported so `spawn` can invoke it from the primitive.
+### `Grasp.Eval` -- Core evaluator
 
-`apply` dispatches on `graspTypeOf v` (auto-forces lazy functions):
-- `GTPrim` — extracts the function via `toPrimFn` and calls it
-- `GTLambda` — extracts params/body/closure via `toLambdaParts`, creates child environment with param bindings, evaluates body
+A CBPV-aware tree-walking interpreter. `eval :: EvalMode -> Env -> LispExpr -> IO GraspVal` pattern-matches on expression constructors.
 
-The evaluator is strict by default: all arguments are evaluated before `apply`. Primitives auto-force lazy arguments at their boundaries via `forceIfLazy`.
+Two modes enforce the CBPV effect discipline:
 
-### `Grasp.Printer` — Value pretty-printer
+- **`ModeComputation`** -- unrestricted IO. All primitives available.
+- **`ModeTransaction`** -- STM only. IO-only primitives (`spawn`, `make-chan`, `chan-put`, `chan-get`) are rejected at call time. Entered via `(atomically body)`.
 
-Converts `Any` to `String` via `graspTypeOf` dispatch. The interesting case is cons cells: `printCons` uses `isNil`/`isCons` predicates to walk the cdr chain, printing proper lists as `(1 2 3)` and improper lists as `(1 . 2)`.
+Special forms: `quote`, `if`, `define`, `lambda`, `begin`, `let`, `loop`/`recur`, `lazy`/`force`, `atomically`, `defmacro`.
 
-### `Grasp.RtsBridge` — FFI bindings
+Built-in primitives (22): arithmetic (`+`, `-`, `*`, `div`), comparison (`=`, `<`, `>`), list operations (`list`, `cons`, `car`, `cdr`, `null?`), STM (`make-tvar`, `read-tvar`, `write-tvar`), concurrency (`spawn`, `make-chan`, `chan-put`, `chan-get`), IO (`error`, `display`, `newline`).
 
-Haskell-side FFI declarations for the C bridge functions. Three FFI imports:
+`apply` dispatches on `graspTypeOf`: `GTPrim` calls the primitive function, `GTLambda` creates a child environment with parameter bindings and evaluates the body.
 
-- `c_roundtrip_int` — round-trip test (mkInt + getInt)
-- `c_apply_int_int` — **unsafe**: builds thunk and evaluates via `rts_eval` (aborts on exception)
-- `c_build_int_app` — **safe**: builds thunk via `rts_apply`, returns `StablePtr` without evaluating
+The evaluator is strict by default: all arguments are evaluated before `apply`. Primitives auto-force lazy arguments at their boundaries.
 
-The safe evaluation wrapper `bridgeSafeApplyIntInt` builds the thunk in C, then forces it in Haskell with `try`/`evaluate`:
+### `Grasp.Printer` -- Value pretty-printer
 
-```haskell
-bridgeSafeApplyIntInt :: StablePtr (Int -> Int) -> Int -> IO (Either String Int)
-```
+Converts `Any` to `String` via `graspTypeOf` dispatch. Cons cells are printed as proper lists `(1 2 3)` or improper lists `(1 . 2)` by walking the cdr chain.
 
-Key design choices:
+## 18 Native Types
 
-- **`safe` not `unsafe`**: The C functions call `rts_lock()`, which acquires a GHC capability. A `safe` FFI call causes the Haskell thread to release its capability before entering C, so `rts_lock()` can acquire one. An `unsafe` call would deadlock because the calling thread still holds the capability.
+| GHC closure | Grasp type | Printed as |
+|-------------|------------|------------|
+| `I# n` | Int | `42` |
+| `D# d` | Double | `3.14` |
+| `True` | Bool | `#t` |
+| `False` | Bool | `#f` |
+| `GraspSym s` | Symbol | `foo` |
+| `GraspStr s` | String | `"hello"` |
+| `GraspCons a d` | Cons | `(1 2 3)` or `(1 . 2)` |
+| `GraspNil` | Nil | `()` |
+| `GraspLambda` | Lambda | `<lambda>` |
+| `GraspPrim` | Primitive | `<primitive:+>` |
+| `GraspLazy` | Lazy | `<lazy>` |
+| `GraspMacro` | Macro | `<macro>` |
+| `GraspChan` | Chan | `<chan>` |
+| `GraspModule` | Module | `<module:name>` |
+| `GraspRecur` | Recur | (internal) |
+| `GraspPromptTag` | PromptTag | `<prompt-tag>` |
+| `GraspTVar` | TVar | `<tvar>` |
 
-- **`Int` not `CInt`**: GHC's `HsInt` is `int64_t` on 64-bit platforms. Haskell's `Int` is the same size. `CInt` is `int32_t` — using it would silently truncate values.
+GHC-equivalent types (Int, Double, Bool) reuse GHC's own closures -- a Grasp integer IS a Haskell `Int`. Grasp-specific types use Haskell ADTs whose info tables GHC generates automatically. Type discrimination is by info-pointer comparison, not constructor tag matching.
 
-- **Split build/eval**: `rts_eval` aborts the process on unhandled Haskell exceptions. By building the thunk in C and forcing it in Haskell, exceptions are caught safely via `try`.
+Note: `True` and `False` have distinct info pointers, giving 18 discriminable types from 17 ADTs.
 
-### `Grasp.HsRegistry` — Type-safe dispatch
+## CBPV Effect Discipline
 
-Validates arity and argument types before invoking a registered Haskell function. Each `HsFuncEntry` carries `[HsType]` arg types and a return type. On mismatch, produces clear errors like "succ: expected Int, got String".
-
-### `Grasp.HaskellInterop` — Haskell function registry
-
-Builds the `HsFuncRegistry` and extends the default environment with both `haskell-call` (legacy) and the `hs:` prefix dispatch (via the registry stored in `EnvData`).
-
-### `Grasp.DynLookup` — GHC API session and type inference
-
-Isolates all GHC API usage. A lazy-initialized GHC session (`initGhcState`) provides `exprType` (type inference) and `compileExpr` (compilation to `Any`). Key components:
-
-- **`classifyType`** — maps GHC `Type` to `GraspArgType` (NativeInt, ListOf, etc.) using `tcSplitTyConApp_maybe` against builtin TyCons
-- **`decomposeFuncType`** — splits function types via `tcSplitFunTys` into args + return
-- **`dynCall`** / **`dynCallInferred`** — compile and apply functions via `unsafeCoerce` on closures
-- **`applyN`** — curried closure application: `f a b c` via sequential `unsafeCoerce`
-
-Uses `reifyGhc`/`reflectGhc` to persist the GHC session across calls without re-initializing.
-
-### `Grasp.DynDispatch` — Marshaling and dynamic dispatch
-
-Bridges between Grasp values and the GHC API. Handles:
-
-- **`getOrInitGhc`** — lazy GHC session initialization from `envGhcSession`
-- **`marshalGraspToHaskell`** / **`marshalHaskellToGrasp`** — convert between Grasp cons chains and Haskell lists, Grasp strings and Haskell `String`, etc.
-- **Re-boxing** — values returned by the GHC bytecode interpreter have different info table pointers than statically compiled closures; `reboxInt`/`reboxBool`/`reboxDouble` force fresh allocation with the current binary's constructors
-- **`dynDispatch`** — full cycle: type inference → marshaling → application → marshaling back. Falls back to type inference from actual arguments for polymorphic functions.
-- **`dynDispatchAnnotated`** — same but for `hs@` form with explicit type annotations
-
-**RTS bridge path** (`succ`, `negate`):
-1. `StablePtr` created once at registry construction
-2. Each call: `grasp_build_int_app` builds thunk in C via `rts_apply`
-3. Thunk forced safely in Haskell via `try`/`evaluate`
-4. Exception → error message; success → `mkInt` result
-
-**Haskell marshaling path** (`reverse`, `length`):
-1. Marshal Grasp cons list to `[Int]`
-2. Call the Haskell function directly
-3. Marshal the result back to Grasp values
-
-## The C Bridge
-
-The C bridge (`cbits/rts_bridge.c`) is the layer that touches GHC's RTS directly. It includes `Rts.h` (GHC's internal RTS header) and uses the following RTS functions:
-
-### `rts_lock()` / `rts_unlock()`
-
-Acquires/releases a GHC **Capability**. A Capability is a token that grants permission to allocate on the GHC heap and run Haskell code. The RTS has a fixed number of capabilities (one per `-N` thread). `rts_lock()` blocks until one is available.
-
-```c
-Capability *cap = rts_lock();
-// ... use RTS functions that need a capability ...
-rts_unlock(cap);
-```
-
-### `rts_mkInt(cap, val)`
-
-Allocates a boxed `Int` on the GHC heap. Returns a `HaskellObj` (pointer to an `StgClosure`). This is the same representation GHC uses for Haskell `Int` values.
-
-### `rts_apply(cap, fn, arg)`
-
-Creates an application thunk: `fn arg`. Does not evaluate — just builds the closure on the heap. The result is a `HaskellObj` pointing to an unevaluated application node.
-
-### `rts_eval(&cap, expr, &result)`
-
-Forces an expression to weak head normal form (WHNF) by entering GHC's scheduler. The STG machine evaluates the closure: enters thunks, applies functions, updates indirections. This is the same evaluation mechanism GHC uses for compiled Haskell code.
-
-**Warning**: If the Haskell function throws an exception during evaluation, `rts_eval` calls `barf()` and aborts the process. Grasp avoids this by using `grasp_build_int_app` (thunk construction only) + Haskell-side `try`/`evaluate` for safe forcing.
-
-**Warning**: `rts_eval` must not be called from code already executing under `rts_lock()` on the same thread — that would deadlock, since the thread already holds the capability.
-
-### `rts_getInt(obj)`
-
-Extracts the `Int` value from a boxed `Int` closure. Assumes the closure is already evaluated to WHNF.
-
-### `deRefStablePtr(sp)`
-
-Dereferences a `StablePtr` to get the underlying `HaskellObj`. StablePtrs are GC roots — they prevent the garbage collector from moving or collecting the pointed-to closure, giving C code a stable handle.
-
-## Data Flow: `(hs:succ 41)`
-
-Here is the complete path a Haskell interop call takes:
+The evaluator tracks a `EvalMode` that enforces the CBPV mode separation:
 
 ```
-1. Parser:   "(hs:succ 41)"
-             → EList [ESym "hs:succ", EInt 41]
-
-2. Eval:     eval sees "hs:" prefix, strips it → "succ"
-             → looks up registry in EnvData
-             → validates: graspTypeOf arg == GTInt matches [HsInt]
-             → calls hfInvoke [arg]
-
-3. Registry: bridgeSafeApplyIntInt sp 41
-             (StablePtr created once at registry construction)
-
-4. FFI:      foreign import ccall safe "grasp_build_int_app"
-             → Haskell releases capability, enters C
-
-5. C bridge: Capability *cap = rts_lock();
-             HaskellObj fn = deRefStablePtr(fn_sp);   // get succ closure
-             HaskellObj arg = rts_mkInt(cap, 41);      // box 41 on GHC heap
-             HaskellObj app = rts_apply(cap, fn, arg); // build: succ 41
-             StablePtr result_sp = getStablePtr(app);  // anchor thunk
-             rts_unlock(cap);
-             return result_sp;                         // no eval in C!
-
-6. Haskell:  thunk <- deRefStablePtr result_sp
-             result <- try (evaluate thunk)            // safe forcing
-             freeStablePtr result_sp
-             → Right 42
-
-7. Back:     → mkInt 42 (a real I# closure on the GHC heap)
-             → printVal → "42"
+Value  ───pure───→  Transaction  ───atomically───→  Computation
+  A                     T̲                              B̲
+                   (STM effects only)           (unrestricted IO)
 ```
 
-Step 5 is where Grasp's values live on GHC's heap. The `41` is a real `StgClosure`. The application `succ 41` is a real thunk. Step 6 forces it safely in Haskell — if the function throws, `try` catches the exception instead of aborting the process.
+`(atomically body)` switches from `ModeComputation` to `ModeTransaction`. Inside a transaction, IO-only primitives are rejected. Nested `atomically` is an error. STM primitives (`make-tvar`, `read-tvar`, `write-tvar`) work in both modes. This matches GHC's own STM discipline.
+
+## Dual Interface Vision
+
+**REPL (current)**: All values start as `?` (`Any`). Interpreter dispatch via info-pointer checks. Interactive exploration of the RTS.
+
+**Haskell QuasiQuoter (future)**: `[grasp| ... |]` in Haskell source. Types inferred from Haskell context. Grasp code compiled to native closures at Haskell compile time. The `EQuoter`/`EAntiquote` AST nodes are already in the parser types.
+
+Both interfaces target the same RTS objects.
+
+## RTS Citizenship Levels
+
+Grasp's relationship with the RTS deepens over time:
+
+**Level 0 -- Read-only tenant (current)**: Read info pointers via `unpackClosure#`. Store values via `unsafeCoerce` to `Any`. Force thunks via `seq`. Guest using Haskell ADTs as closures.
+
+**Level 1 -- Raw closure allocation**: Allocate heap objects with specific payload layouts. Control pointer vs non-pointer fields. Still using existing Haskell info tables.
+
+**Level 2 -- Custom info tables**: Create info tables at runtime with custom GC layout bitmaps and entry code pointers. GHC's GC traces them natively.
+
+**Level 3 -- Custom entry code (JIT)**: Emit machine code for closure entry. Compiled Grasp lambdas run generated native instructions calling primops directly.
+
+**Level 4 -- RTS extension (far horizon)**: Custom GC behavior per closure type. Grasp as a programmable GC policy language.
 
 ## Build System
 
-Grasp uses [Cabal](https://www.haskell.org/cabal/) with a [Nix](https://nixos.org/) flake for reproducible builds:
+Cabal + Nix flake (GHC 9.8.4):
 
-- **`flake.nix`** — provides GHC 9.8, cabal-install, overmind, tmux
-- **`grasp.cabal`** — defines the executable and test suite
-- **`c-sources: cbits/rts_bridge.c`** — Cabal compiles the C bridge alongside Haskell code. GHC automatically provides the include paths for `Rts.h` and `HsFFI.h`.
-- **`-threaded -rtsopts`** — links with the threaded RTS (required for `rts_lock`)
-
-The test suite currently compiles sources twice (via `hs-source-dirs: test, src`) rather than extracting a library. This is a known simplification for the MVP.
-
-## Standard Library
-
-`lib/prelude.gsp` is a standard library written in Grasp itself. It provides common list utilities (map, filter, fold, length, append, etc.) implemented using `loop`/`recur` for explicit tail recursion. The prelude is a regular Grasp module — it can be loaded via `(import "lib/prelude.gsp")` or automatically in future phases.
+- **`flake.nix`** -- provides GHC 9.8, cabal-install, overmind, tmux
+- **`grasp.cabal`** -- defines executable and test suite
+- **`c-sources: cbits/rts_bridge.c`** -- Cabal compiles the C bridge alongside Haskell code
+- **`-threaded -rtsopts`** -- links with the threaded RTS
