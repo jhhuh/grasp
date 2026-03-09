@@ -6,3 +6,5 @@ result
 *.dyn_hi
 *.dyn_o
 site/
+grasp_boot
+layout_check
