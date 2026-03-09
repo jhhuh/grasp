@@ -21,15 +21,35 @@ The mode system is enforced at runtime: STM blocks reject IO operations. The lon
 
 | Level | Capability | Status |
 |-------|-----------|--------|
-| L0 | Read info pointers, discriminate types | Current |
-| L1 | Raw closure allocation | Planned |
-| L2 | Custom info tables | Planned |
+| L0 | Read info pointers, discriminate types | v2 interpreter |
+| L1 | Raw closure allocation | **grasp0** |
+| L2 | Custom info tables at runtime | **grasp0** |
 | L3 | JIT compilation | Future |
 | L4 | GC extension points | Future |
 
-## Status
+## grasp0: C-Native Foundation
 
-**v2 core interpreter complete.** 130 tests passing.
+Pure C, zero Haskell. Grasp creates its own closures directly on the GHC heap.
+
+```bash
+$ nix develop -c make boot     # build and run C bootstrap tests
+=== Grasp C-Native Bootstrap Tests ===
+[Info Tables]    8/8 PASS
+[Allocation]    10/10 PASS
+[GC Survival]    8/8 PASS     # closures survive performMajorGC()
+[Type Discrimination] 2/2 PASS
+```
+
+Four functions, two info tables:
+- `grasp_make_info(ptrs, nptrs, tag)` -- runtime info table creation via mmap
+- `grasp_alloc(cap, info, fields, n)` -- heap allocation via RTS `allocate()`
+- `grasp_field(closure, i)` / `grasp_info(closure)` -- field access, type identity
+
+Everything is cons and nil. The rest is structure.
+
+## v2 Interpreter
+
+**130 tests passing.** Built on Haskell ADTs (will migrate to grasp0).
 
 ```
 $ nix develop -c cabal run grasp
@@ -79,6 +99,7 @@ nix develop -c cabal test                   # run tests
 
 ## Documentation
 
+- [grasp0 Design](docs/plans/2026-03-09-c-native-bootstrap-design.md) -- C-native foundation, 4 functions, 2 info tables
 - [v2 Foundations Design](docs/plans/2026-03-09-grasp-v2-foundations-design.md) -- vision, CBPV semantics, RTS citizenship
 - [v2 Core Interpreter Plan](docs/plans/2026-03-09-grasp-v2-core-interpreter.md) -- implementation details
 

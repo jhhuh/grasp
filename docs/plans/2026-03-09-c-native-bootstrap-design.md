@@ -1,7 +1,7 @@
-# Grasp C-Native Bootstrap Design
+# grasp0: C-Native Foundation Design
 
 **Date**: 2026-03-09
-**Status**: Design
+**Status**: Implemented
 
 ## Vision
 
