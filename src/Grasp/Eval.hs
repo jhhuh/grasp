@@ -4,18 +4,29 @@ module Grasp.Eval
   ( eval
   , apply
   , defaultEnv
+  , EvalMode(..)
   ) where
 
 import Data.IORef
 import qualified Data.Text as T
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import GHC.Exts (Any)
+import Control.Monad (when)
 
 import System.IO.Unsafe (unsafeInterleaveIO)
 import Control.Concurrent.STM (newTVarIO, readTVarIO, writeTVar, atomically)
 
 import Grasp.Types
 import Grasp.NativeTypes
+
+-- ─── CBPV Eval Modes ──────────────────────────────────────
+
+data EvalMode = ModeComputation | ModeTransaction
+  deriving (Eq, Show)
+
+ioOnlyPrims :: Set.Set T.Text
+ioOnlyPrims = Set.fromList ["spawn", "make-chan", "chan-put", "chan-get"]
 
 defaultEnv :: IO Env
 defaultEnv = do
@@ -107,49 +118,49 @@ writeTVarOp _ = error "write-tvar expects two arguments"
 
 -- ─── Evaluator ──────────────────────────────────────────────
 
-eval :: Env -> LispExpr -> IO GraspVal
-eval _ (EInt n)    = pure $ mkInt (fromInteger n)
-eval _ (EDouble d) = pure $ mkDouble d
-eval _ (EStr s)    = pure $ mkStr s
-eval _ (EBool b)   = pure $ mkBool b
-eval env (ESym s)  = do
+eval :: EvalMode -> Env -> LispExpr -> IO GraspVal
+eval _ _ (EInt n)    = pure $ mkInt (fromInteger n)
+eval _ _ (EDouble d) = pure $ mkDouble d
+eval _ _ (EStr s)    = pure $ mkStr s
+eval _ _ (EBool b)   = pure $ mkBool b
+eval mode env (ESym s)  = do
   ed <- readIORef env
   case Map.lookup s (envBindings ed) of
     Just v  -> pure v
     Nothing -> error $ "unbound symbol: " <> T.unpack s
-eval _ (EList [ESym "quote", e]) = evalQuote e
-eval env (EList [ESym "if", cond, then_, else_]) = do
-  c <- eval env cond
+eval _ _ (EList [ESym "quote", e]) = evalQuote e
+eval mode env (EList [ESym "if", cond, then_, else_]) = do
+  c <- eval mode env cond
   c' <- forceIfLazy c
   if graspTypeOf c' == GTBoolFalse
-    then eval env else_
-    else eval env then_
-eval env (EList [ESym "define", ESym name, body]) = do
-  val <- eval env body
+    then eval mode env else_
+    else eval mode env then_
+eval mode env (EList [ESym "define", ESym name, body]) = do
+  val <- eval mode env body
   modifyIORef' env $ \ed -> ed { envBindings = Map.insert name val (envBindings ed) }
   pure mkNil
-eval env (EList (ESym "lambda" : EList params : body)) = do
+eval mode env (EList (ESym "lambda" : EList params : body)) = do
   let paramNames = map (\case ESym s -> s; _ -> error "lambda params must be symbols") params
   case body of
     []     -> error "lambda must have at least one body expression"
     [expr] -> pure $ mkLambda paramNames expr env
     _      -> pure $ mkLambda paramNames (EList (ESym "begin" : body)) env
-eval env (EList (ESym "begin" : exprs)) = case exprs of
+eval mode env (EList (ESym "begin" : exprs)) = case exprs of
   [] -> pure mkNil
-  _  -> last <$> mapM (eval env) exprs
-eval env (EList (ESym "let" : EList bindings : body)) = do
+  _  -> last <$> mapM (eval mode env) exprs
+eval mode env (EList (ESym "let" : EList bindings : body)) = do
   childEnv <- readIORef env >>= newIORef
   let go [] = pure ()
       go (ESym name : expr : rest) = do
-        val <- eval childEnv expr
+        val <- eval mode childEnv expr
         modifyIORef' childEnv $ \ed ->
           ed { envBindings = Map.insert name val (envBindings ed) }
         go rest
       go _ = error "let: odd number of binding forms"
   go bindings
   let bodyExpr = case body of [e] -> e; es -> EList (ESym "begin" : es)
-  eval childEnv bodyExpr
-eval env (EList (ESym "loop" : EList bindings : body)) = do
+  eval mode childEnv bodyExpr
+eval mode env (EList (ESym "loop" : EList bindings : body)) = do
   childEnv <- readIORef env >>= newIORef
   let pairs = goPairs bindings
       names = map fst pairs
@@ -157,13 +168,13 @@ eval env (EList (ESym "loop" : EList bindings : body)) = do
       goPairs (ESym n : e : rest) = (n, e) : goPairs rest
       goPairs _ = error "loop: odd number of binding forms"
   mapM_ (\(name, expr) -> do
-    val <- eval childEnv expr
+    val <- eval mode childEnv expr
     modifyIORef' childEnv $ \ed ->
       ed { envBindings = Map.insert name val (envBindings ed) }
     ) pairs
   let bodyExpr = case body of [e] -> e; es -> EList (ESym "begin" : es)
       go = do
-        result <- eval childEnv bodyExpr
+        result <- eval mode childEnv bodyExpr
         if graspTypeOf result == GTRecur
           then do
             let newVals = toRecurArgs result
@@ -173,33 +184,37 @@ eval env (EList (ESym "loop" : EList bindings : body)) = do
             go
           else pure result
   go
-eval env (EList (ESym "recur" : args)) = do
-  vals <- mapM (eval env) args
+eval mode env (EList (ESym "recur" : args)) = do
+  vals <- mapM (eval mode env) args
   pure $ mkRecur vals
-eval env (EList [ESym "lazy", body]) = do
-  thunk <- unsafeInterleaveIO (eval env body)
+eval mode env (EList [ESym "lazy", body]) = do
+  thunk <- unsafeInterleaveIO (eval mode env body)
   pure $ mkLazy thunk
-eval env (EList [ESym "force", expr]) = do
-  val <- eval env expr
+eval mode env (EList [ESym "force", expr]) = do
+  val <- eval mode env expr
   forceIfLazy val
-eval env (EList [ESym "atomically", body]) = do
-  eval env body
-eval env (EList (fn : args)) = do
-  f <- eval env fn
+eval _ env (EList [ESym "atomically", body]) = do
+  eval ModeTransaction env body
+eval mode env (EList (fn : args)) = do
+  f <- eval mode env fn
   f' <- forceIfLazy f
-  vals <- mapM (eval env) args
-  apply f' vals
-eval _ (EList []) = pure mkNil
+  vals <- mapM (eval mode env) args
+  apply mode f' vals
+eval _ _ (EList []) = pure mkNil
 -- Catch-all for EQuoter/EAntiquote — not supported yet
-eval _ e = error $ "eval: unsupported expression: " <> show e
+eval _ _ e = error $ "eval: unsupported expression: " <> show e
 
 -- ─── Apply ──────────────────────────────────────────────────
 
-apply :: Any -> [Any] -> IO Any
-apply v args = do
+apply :: EvalMode -> Any -> [Any] -> IO Any
+apply mode v args = do
   v' <- forceIfLazy v
   case graspTypeOf v' of
-    GTPrim -> toPrimFn v' args
+    GTPrim -> do
+      let name = toPrimName v'
+      when (name `Set.member` ioOnlyPrims && mode == ModeTransaction) $
+        error $ T.unpack name <> ": not allowed inside atomically (transaction mode)"
+      toPrimFn v' args
     GTLambda -> do
       let (params, body, closure) = toLambdaParts v'
           np = length params
@@ -210,7 +225,7 @@ apply v args = do
           let bindings = Map.fromList (zip params args)
           parentEd <- readIORef closure
           childEnv <- newIORef $ parentEd { envBindings = Map.union bindings (envBindings parentEd) }
-          eval childEnv body
+          eval mode childEnv body
     t -> error $ "not a function: " <> showGraspType t
 
 -- ─── Quote helper ───────────────────────────────────────────

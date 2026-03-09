@@ -3,7 +3,7 @@ module EvalSpec (spec) where
 
 import Test.Hspec
 import Grasp.Types
-import Grasp.Eval
+import Grasp.Eval (eval, defaultEnv, EvalMode(..))
 import Grasp.Printer
 import Grasp.Parser (parseLisp)
 import qualified Data.Text as T
@@ -12,7 +12,7 @@ import qualified Data.Text as T
 evalPrint :: LispExpr -> IO String
 evalPrint expr = do
   env <- defaultEnv
-  val <- eval env expr
+  val <- eval ModeComputation env expr
   pure (printVal val)
 
 -- | Parse a string, eval in given env, return printed result.
@@ -20,7 +20,7 @@ run :: Env -> String -> IO String
 run env input = case parseLisp (T.pack input) of
   Left err -> error (show err)
   Right expr -> do
-    val <- eval env expr
+    val <- eval ModeComputation env expr
     pure (printVal val)
 
 -- | Run in a fresh env.
@@ -48,8 +48,8 @@ spec = describe "Eval" $ do
   describe "define + lookup" $ do
     it "defines and retrieves a value" $ do
       env <- defaultEnv
-      _ <- eval env (EList [ESym "define", ESym "x", EInt 99])
-      val <- eval env (ESym "x")
+      _ <- eval ModeComputation env (EList [ESym "define", ESym "x", EInt 99])
+      val <- eval ModeComputation env (ESym "x")
       printVal val `shouldBe` "99"
 
     it "errors on unbound symbol" $
@@ -131,8 +131,8 @@ spec = describe "Eval" $ do
 
     it "captures closure" $ do
       env <- defaultEnv
-      _ <- eval env (EList [ESym "define", ESym "y", EInt 100])
-      val <- eval env (EList [EList [ESym "lambda", EList [ESym "x"],
+      _ <- eval ModeComputation env (EList [ESym "define", ESym "y", EInt 100])
+      val <- eval ModeComputation env (EList [EList [ESym "lambda", EList [ESym "x"],
                                       EList [ESym "+", ESym "x", ESym "y"]],
                               EInt 5])
       printVal val `shouldBe` "105"
@@ -150,12 +150,12 @@ spec = describe "Eval" $ do
 
     it "sequences side effects" $ do
       env <- defaultEnv
-      _ <- eval env (EList [ESym "begin",
+      _ <- eval ModeComputation env (EList [ESym "begin",
                             EList [ESym "define", ESym "a", EInt 10],
                             EList [ESym "define", ESym "b", EInt 20],
                             EList [ESym "+", ESym "a", ESym "b"]])
       -- a and b should be defined
-      va <- eval env (ESym "a")
+      va <- eval ModeComputation env (ESym "a")
       printVal va `shouldBe` "10"
 
   describe "let" $ do
@@ -185,9 +185,9 @@ spec = describe "Eval" $ do
   describe "lazy/force" $ do
     it "delays and forces evaluation" $ do
       env <- defaultEnv
-      _ <- eval env (EList [ESym "define", ESym "x",
+      _ <- eval ModeComputation env (EList [ESym "define", ESym "x",
               EList [ESym "lazy", EList [ESym "+", EInt 1, EInt 2]]])
-      val <- eval env (EList [ESym "force", ESym "x"])
+      val <- eval ModeComputation env (EList [ESym "force", ESym "x"])
       printVal val `shouldBe` "3"
 
   describe "empty list" $ do

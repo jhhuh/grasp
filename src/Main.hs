@@ -6,7 +6,7 @@ import System.Console.Isocline
 import Control.Exception (SomeException, catch)
 
 import Grasp.Parser (parseLisp)
-import Grasp.Eval (eval, defaultEnv)
+import Grasp.Eval (eval, defaultEnv, EvalMode(..))
 import Grasp.Printer (printVal)
 import Grasp.Types (Env)
 
@@ -28,7 +28,7 @@ repl env = do
           case parseLisp (T.pack line) of
             Left err -> putStrLn $ "parse error: " <> show err
             Right expr -> (do
-              result <- eval env expr
+              result <- eval ModeComputation env expr
               putStrLn (printVal result))
               `catch` \(e :: SomeException) ->
                 putStrLn $ "error: " <> show e
