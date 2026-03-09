@@ -35,26 +35,49 @@ built above the same foundation. Grasp builds its own.
 
 ## Formal Foundations
 
-### CBPV as the Semantic Spine
+### Extended CBPV as the Semantic Spine
 
-Levy's Call-by-Push-Value (CBPV, 2001) distinguishes:
+Levy's Call-by-Push-Value (CBPV, 2001) distinguishes values from
+computations. Grasp extends this to a **three-mode system** with
+transactions as a first-class intermediate layer:
 
 - **Value types** `A` — data that already exists (evaluated, inspectable)
-- **Computation types** `B̲` — suspended work that produces values
+- **Transaction types** `T̲` — composable work with restricted effects (STM only), rollbackable
+- **Computation types** `B̲` — unrestricted work (full IO), not rollbackable
 
-With explicit shifts:
+This is an instance of **adjoint logic with three layers** (Benton 1994,
+Reed 2009, Pfenning), where each layer has a mode with controlled shifts:
 
-- `thunk B̲` — suspend a computation into a value
-- `force A` — resume a suspended computation
+```
+Value  ───pure───→  Transaction  ───atomically───→  Computation
+  A                     T̲                              B̲
+                   (STM effects only,            (unrestricted IO,
+                    composable, rollback)          not rollbackable)
 
-GHC's mutator already implements CBPV operationally:
+Computation ──thunk──→ Value ──force──→ Computation
+```
 
-| CBPV          | GHC mutator                              | Grasp            |
+The critical constraint: **Computation cannot enter Transaction.** You
+cannot perform arbitrary IO inside an STM transaction. This is what
+makes rollback possible — the transaction log can discard speculative
+writes because no irreversible IO has occurred.
+
+GHC's RTS already implements all three modes:
+
+| Mode          | GHC RTS                                  | Grasp            |
 |---------------|------------------------------------------|------------------|
 | Value `A`     | `CONSTR` closure — evaluated, GC-traced  | Known type → compile |
-| Computation `B̲` | `THUNK` closure — unevaluated, update frame | Unknown type → interpret |
+| Transaction `T̲` | `STM` action — TRec log, TVar read/write sets, validation, retry | `(stm ...)` |
+| Computation `B̲` | `IO`/`THUNK` — unevaluated, update frame | `(lazy ...)` / interpret |
 | `thunk`       | Allocate THUNK in nursery                | `(lazy expr)`    |
 | `force`       | Enter closure — eval/apply, blackhole, update | `(force x)` / auto |
+| `atomically`  | Run STM action — validate, commit or rollback | `(atomically expr)` |
+| `retry`       | Block thread until TVar read-set changes | `(retry)` |
+
+**Transactions as first-class citizens** means Grasp programs can compose
+concurrent operations: two STM blocks combine into a larger atomic
+transaction. This is not possible with IO. The three-mode type system
+enforces this composability by construction.
 
 **Evaluation strategy couples with the type system.** Strict evaluation
 (call-by-value) means arguments are values at call boundaries — their types
