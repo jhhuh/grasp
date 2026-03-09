@@ -52,6 +52,7 @@ test-suite grasp-test
     NativeTypesSpec
     PrinterSpec
     EvalSpec
+    StmSpec
   c-sources:      cbits/rts_bridge.c
   include-dirs:   cbits
   build-tool-depends:

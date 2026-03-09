@@ -12,6 +12,7 @@ import qualified Data.Map.Strict as Map
 import GHC.Exts (Any)
 
 import System.IO.Unsafe (unsafeInterleaveIO)
+import Control.Concurrent.STM (newTVarIO, readTVarIO, writeTVar, atomically)
 
 import Grasp.Types
 import Grasp.NativeTypes
@@ -33,6 +34,9 @@ defaultEnv = do
         , ("car",   mkPrim "car"   carOp)
         , ("cdr",   mkPrim "cdr"   cdrOp)
         , ("null?", mkPrim "null?" nullOp)
+        , ("make-tvar",  mkPrim "make-tvar"  makeTVarOp)
+        , ("read-tvar",  mkPrim "read-tvar"  readTVarOp)
+        , ("write-tvar", mkPrim "write-tvar" writeTVarOp)
         ]
     , envHsRegistry = Map.empty
     , envGhcSession = ghcRef
@@ -86,6 +90,20 @@ nullOp [v] = do
   v' <- forceIfLazy v
   pure $ mkBool (isNil v')
 nullOp _ = error "null? expects one argument"
+
+makeTVarOp :: [Any] -> IO Any
+makeTVarOp [v] = mkTVar <$> newTVarIO v
+makeTVarOp _ = error "make-tvar expects one argument"
+
+readTVarOp :: [Any] -> IO Any
+readTVarOp [v] = readTVarIO (toTVar v)
+readTVarOp _ = error "read-tvar expects one argument"
+
+writeTVarOp :: [Any] -> IO Any
+writeTVarOp [tv, val] = do
+  atomically $ writeTVar (toTVar tv) val
+  pure mkNil
+writeTVarOp _ = error "write-tvar expects two arguments"
 
 -- ─── Evaluator ──────────────────────────────────────────────
 
@@ -164,6 +182,8 @@ eval env (EList [ESym "lazy", body]) = do
 eval env (EList [ESym "force", expr]) = do
   val <- eval env expr
   forceIfLazy val
+eval env (EList [ESym "atomically", body]) = do
+  eval env body
 eval env (EList (fn : args)) = do
   f <- eval env fn
   f' <- forceIfLazy f
