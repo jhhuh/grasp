@@ -7,6 +7,12 @@ executable grasp
   default-language: GHC2021
   hs-source-dirs:   src
   main-is:          Main.hs
+  other-modules:
+    Grasp.Types
+    Grasp.Parser
+    Grasp.RtsBridge
+    Grasp.RuntimeCheck
+    Grasp.NativeTypes
   c-sources:      cbits/rts_bridge.c
   include-dirs:   cbits
   build-depends:
@@ -31,6 +37,15 @@ test-suite grasp-test
   type:             exitcode-stdio-1.0
   hs-source-dirs:   test, src
   main-is:          Spec.hs
+  other-modules:
+    Grasp.Types
+    Grasp.Parser
+    Grasp.RtsBridge
+    Grasp.RuntimeCheck
+    Grasp.NativeTypes
+    ParserSpec
+    RuntimeCheckSpec
+    NativeTypesSpec
   c-sources:      cbits/rts_bridge.c
   include-dirs:   cbits
   build-tool-depends:
