@@ -12,10 +12,13 @@ import qualified Data.Text as T
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import GHC.Exts (Any)
-import Control.Monad (when)
+import Control.Monad (when, void)
 
 import System.IO.Unsafe (unsafeInterleaveIO)
+import Control.Concurrent (forkIO)
+import Control.Concurrent.Chan (newChan, writeChan, readChan)
 import Control.Concurrent.STM (newTVarIO, readTVarIO, writeTVar, atomically)
+import Control.Exception (SomeException, catch)
 
 import Grasp.Types
 import Grasp.NativeTypes
@@ -48,6 +51,10 @@ defaultEnv = do
         , ("make-tvar",  mkPrim "make-tvar"  makeTVarOp)
         , ("read-tvar",  mkPrim "read-tvar"  readTVarOp)
         , ("write-tvar", mkPrim "write-tvar" writeTVarOp)
+        , ("spawn",      mkPrim "spawn"      spawnOp)
+        , ("make-chan",   mkPrim "make-chan"   makeChanOp)
+        , ("chan-put",    mkPrim "chan-put"    chanPutOp)
+        , ("chan-get",    mkPrim "chan-get"    chanGetOp)
         ]
     , envHsRegistry = Map.empty
     , envGhcSession = ghcRef
@@ -115,6 +122,25 @@ writeTVarOp [tv, val] = do
   atomically $ writeTVar (toTVar tv) val
   pure mkNil
 writeTVarOp _ = error "write-tvar expects two arguments"
+
+spawnOp :: [Any] -> IO Any
+spawnOp [f] = do
+  _ <- forkIO $ void (apply ModeComputation f [])
+          `catch` (\(_ :: SomeException) -> pure ())
+  pure mkNil
+spawnOp _ = error "spawn expects one argument (a thunk)"
+
+makeChanOp :: [Any] -> IO Any
+makeChanOp [] = mkChan <$> newChan
+makeChanOp _ = error "make-chan expects no arguments"
+
+chanPutOp :: [Any] -> IO Any
+chanPutOp [ch, val] = writeChan (toChan ch) val >> pure mkNil
+chanPutOp _ = error "chan-put expects two arguments"
+
+chanGetOp :: [Any] -> IO Any
+chanGetOp [ch] = readChan (toChan ch)
+chanGetOp _ = error "chan-get expects one argument"
 
 -- ─── Evaluator ──────────────────────────────────────────────
 
@@ -193,7 +219,9 @@ eval mode env (EList [ESym "lazy", body]) = do
 eval mode env (EList [ESym "force", expr]) = do
   val <- eval mode env expr
   forceIfLazy val
-eval _ env (EList [ESym "atomically", body]) = do
+eval mode env (EList [ESym "atomically", body]) = do
+  when (mode == ModeTransaction) $
+    error "atomically: nested atomically is not allowed"
   eval ModeTransaction env body
 eval mode env (EList (fn : args)) = do
   f <- eval mode env fn

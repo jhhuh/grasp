@@ -223,3 +223,46 @@ spec = describe "Eval" $ do
 
     it "boolean logic" $
       runFresh "(if (> 5 3) (if (< 1 2) 42 0) 0)" `shouldReturn` "42"
+
+  describe "concurrency" $ do
+    it "spawn and channels" $ do
+      env <- defaultEnv
+      _ <- run env "(define ch (make-chan))"
+      _ <- run env "(spawn (lambda () (chan-put ch 42)))"
+      run env "(chan-get ch)" `shouldReturn` "42"
+
+    it "channel put/get without spawn" $ do
+      env <- defaultEnv
+      _ <- run env "(define ch (make-chan))"
+      _ <- run env "(chan-put ch 99)"
+      run env "(chan-get ch)" `shouldReturn` "99"
+
+    it "rejects spawn inside atomically" $ do
+      env <- defaultEnv
+      eval ModeComputation env
+        (EList [ESym "atomically",
+          EList [ESym "spawn", EList [ESym "lambda", EList [], EInt 42]]])
+        `shouldThrow` anyErrorCall
+
+    it "rejects make-chan inside atomically" $ do
+      env <- defaultEnv
+      eval ModeComputation env
+        (EList [ESym "atomically",
+          EList [ESym "make-chan"]])
+        `shouldThrow` anyErrorCall
+
+    it "rejects chan-put inside atomically" $ do
+      env <- defaultEnv
+      _ <- eval ModeComputation env (EList [ESym "define", ESym "ch", EList [ESym "make-chan"]])
+      eval ModeComputation env
+        (EList [ESym "atomically",
+          EList [ESym "chan-put", ESym "ch", EInt 1]])
+        `shouldThrow` anyErrorCall
+
+    it "rejects chan-get inside atomically" $ do
+      env <- defaultEnv
+      _ <- eval ModeComputation env (EList [ESym "define", ESym "ch", EList [ESym "make-chan"]])
+      eval ModeComputation env
+        (EList [ESym "atomically",
+          EList [ESym "chan-get", ESym "ch"]])
+        `shouldThrow` anyErrorCall
