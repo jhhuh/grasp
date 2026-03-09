@@ -13,6 +13,7 @@ executable grasp
     Grasp.RtsBridge
     Grasp.RuntimeCheck
     Grasp.NativeTypes
+    Grasp.Printer
   c-sources:      cbits/rts_bridge.c
   include-dirs:   cbits
   build-depends:
@@ -43,9 +44,11 @@ test-suite grasp-test
     Grasp.RtsBridge
     Grasp.RuntimeCheck
     Grasp.NativeTypes
+    Grasp.Printer
     ParserSpec
     RuntimeCheckSpec
     NativeTypesSpec
+    PrinterSpec
   c-sources:      cbits/rts_bridge.c
   include-dirs:   cbits
   build-tool-depends:

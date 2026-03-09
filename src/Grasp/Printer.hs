@@ -1,0 +1,31 @@
+{-# LANGUAGE OverloadedStrings #-}
+module Grasp.Printer (printVal) where
+
+import qualified Data.Text as T
+import GHC.Exts (Any)
+import Grasp.NativeTypes
+
+printVal :: Any -> String
+printVal v = case graspTypeOf v of
+  GTInt       -> show (toInt v)
+  GTDouble    -> show (toDouble v)
+  GTBoolTrue  -> "#t"
+  GTBoolFalse -> "#f"
+  GTSym       -> T.unpack (toSym v)
+  GTStr       -> "\"" <> T.unpack (toStr v) <> "\""
+  GTNil       -> "()"
+  GTCons      -> "(" <> printCons (toCar v) (toCdr v) <> ")"
+  GTLambda    -> "<lambda>"
+  GTPrim      -> "<primitive:" <> T.unpack (toPrimName v) <> ">"
+  GTLazy      -> "<lazy>"
+  GTMacro     -> "<macro>"
+  GTChan      -> "<chan>"
+  GTModule    -> "<module:" <> T.unpack (toModuleName v) <> ">"
+  GTRecur     -> error "recur used outside of loop"
+  GTPromptTag -> "<prompt-tag>"
+
+printCons :: Any -> Any -> String
+printCons x d
+  | isNil d   = printVal x
+  | isCons d  = printVal x <> " " <> printCons (toCar d) (toCdr d)
+  | otherwise = printVal x <> " . " <> printVal d
