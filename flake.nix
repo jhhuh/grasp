@@ -24,6 +24,7 @@
           hsPkgs.cabal-install
           pkgs.overmind
           pkgs.tmux
+          pkgs.poppler-utils
         ];
       };
 
