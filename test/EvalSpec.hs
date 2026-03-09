@@ -266,3 +266,22 @@ spec = describe "Eval" $ do
         (EList [ESym "atomically",
           EList [ESym "chan-get", ESym "ch"]])
         `shouldThrow` anyErrorCall
+
+  describe "macros" $ do
+    it "defmacro and expand" $ do
+      env <- defaultEnv
+      _ <- run env "(defmacro when (test body) (list 'if test body #f))"
+      run env "(when #t 42)" `shouldReturn` "42"
+      run env "(when #f 42)" `shouldReturn` "#f"
+
+    it "macro does not evaluate arguments" $ do
+      env <- defaultEnv
+      _ <- run env "(define x 0)"
+      _ <- run env "(defmacro my-quote (e) (list 'quote e))"
+      run env "(my-quote (+ 1 2))" `shouldReturn` "(+ 1 2)"
+
+    it "macro with nested expansion" $ do
+      env <- defaultEnv
+      _ <- run env "(defmacro unless (test body) (list 'if test #f body))"
+      run env "(unless #f 99)" `shouldReturn` "99"
+      run env "(unless #t 99)" `shouldReturn` "#f"

@@ -18,7 +18,7 @@ import System.IO.Unsafe (unsafeInterleaveIO)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (newChan, writeChan, readChan)
 import Control.Concurrent.STM (newTVarIO, readTVarIO, writeTVar, atomically)
-import Control.Exception (SomeException, catch)
+import Control.Exception (SomeException, SomeAsyncException, catch, fromException, throwIO)
 
 import Grasp.Types
 import Grasp.NativeTypes
@@ -126,7 +126,10 @@ writeTVarOp _ = error "write-tvar expects two arguments"
 spawnOp :: [Any] -> IO Any
 spawnOp [f] = do
   _ <- forkIO $ void (apply ModeComputation f [])
-          `catch` (\(_ :: SomeException) -> pure ())
+          `catch` (\(e :: SomeException) ->
+            case fromException e of
+              Just async -> throwIO (async :: SomeAsyncException)
+              Nothing    -> pure ())
   pure mkNil
 spawnOp _ = error "spawn expects one argument (a thunk)"
 
@@ -213,6 +216,12 @@ eval mode env (EList (ESym "loop" : EList bindings : body)) = do
 eval mode env (EList (ESym "recur" : args)) = do
   vals <- mapM (eval mode env) args
   pure $ mkRecur vals
+eval mode env (EList [ESym "defmacro", ESym name, EList params, body]) = do
+  let paramNames = map (\case ESym s -> s; _ -> error "macro params must be symbols") params
+  let macro = mkMacro paramNames body env
+  modifyIORef' env $ \ed ->
+    ed { envBindings = Map.insert name macro (envBindings ed) }
+  pure mkNil
 eval mode env (EList [ESym "lazy", body]) = do
   thunk <- unsafeInterleaveIO (eval mode env body)
   pure $ mkLazy thunk
@@ -226,8 +235,23 @@ eval mode env (EList [ESym "atomically", body]) = do
 eval mode env (EList (fn : args)) = do
   f <- eval mode env fn
   f' <- forceIfLazy f
-  vals <- mapM (eval mode env) args
-  apply mode f' vals
+  case graspTypeOf f' of
+    GTMacro -> do
+      quotedArgs <- mapM evalQuote args
+      let (params, body, closure) = toMacroParts f'
+          np = length params
+          na = length quotedArgs
+      if np /= na
+        then error $ "macro expects " <> show np <> " args, got " <> show na
+        else do
+          let bindings = Map.fromList (zip params quotedArgs)
+          parentEd <- readIORef closure
+          childEnv <- newIORef $ parentEd { envBindings = Map.union bindings (envBindings parentEd) }
+          expansion <- eval mode childEnv body
+          eval mode env (anyToExpr expansion)
+    _ -> do
+      vals <- mapM (eval mode env) args
+      apply mode f' vals
 eval _ _ (EList []) = pure mkNil
 -- Catch-all for EQuoter/EAntiquote — not supported yet
 eval _ _ e = error $ "eval: unsupported expression: " <> show e
@@ -268,3 +292,25 @@ evalQuote (EList xs)  = do
   vals <- mapM evalQuote xs
   pure $ foldr mkCons mkNil vals
 evalQuote e = error $ "evalQuote: unsupported expression: " <> show e
+
+-- ─── Macro expansion helper ──────────────────────────────
+
+-- | Convert a runtime value back to a LispExpr for macro expansion.
+anyToExpr :: Any -> LispExpr
+anyToExpr v = case graspTypeOf v of
+  GTInt       -> EInt (fromIntegral (toInt v))
+  GTDouble    -> EDouble (toDouble v)
+  GTBoolTrue  -> EBool True
+  GTBoolFalse -> EBool False
+  GTSym       -> ESym (toSym v)
+  GTStr       -> EStr (toStr v)
+  GTNil       -> EList []
+  GTCons      -> EList (consToExprList v)
+  t           -> error $ "cannot use " <> showGraspType t <> " as code in macro expansion"
+
+-- | Walk a cons chain, converting each element to LispExpr.
+consToExprList :: Any -> [LispExpr]
+consToExprList v
+  | isNil v   = []
+  | isCons v  = anyToExpr (toCar v) : consToExprList (toCdr v)
+  | otherwise = error "improper list in macro expansion"
